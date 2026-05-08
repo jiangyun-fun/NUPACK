@@ -49,15 +49,33 @@ template <class T, class U, class Comp=less_t> constexpr auto ordered_pair(T &&t
     return c(t, u) ? std::pair<R, R>(fw<T>(t), fw<U>(u)) : std::pair<R, R>(fw<U>(u), fw<T>(t));
 }
 
+
+/******************************************************************************************/
+
+/// Simple timer class used to time a piece of code
+template <class Clock=std::chrono::high_resolution_clock, class Type=real>
+struct Timer {
+    decltype(Clock::now()) start;
+    auto now() const noexcept {return Clock::now();}
+    Timer() noexcept : start(now()) {}
+    Type operator()() const noexcept {return std::chrono::duration<Type>(now() - start).count();}
+    Type reset() noexcept {
+        auto n = now();
+        auto t = (*this)();
+        start = n;
+        return t;
+    }
+};
+
 /******************************************************************************************/
 
 /// return the time it takes to run a function n times
 template <class F, class ...Ts>
 double time_it(std::size_t n, F &&f, Ts &&...ts) {
-    auto const t0 = std::chrono::high_resolution_clock::now();
+    auto const timer = Timer();
     if (n) f(ts...);
     for (std::size_t i = 1; i < n; ++i) {clobber_memory(); f(ts...);}
-    return std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - t0).count() / n;
+    return timer() / n;
 }
 
 template <class F> auto time_it(F &&f) {return time_it(1, fw<F>(f));}

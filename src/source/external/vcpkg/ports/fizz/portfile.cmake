@@ -3,44 +3,41 @@ vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO facebookincubator/fizz
-    REF 1c40fde31b5eff8a05f928497429bffe7425b4fd # v2020.10.19.00
-    SHA512 9e0de756855941c377f2a52d9b751e6ae066c8d8ae4e7a06211b2537a039e533cbc782cbce947cb703d7bd4c5cb5fb4420e71eeafdcb5f1264d788ca3eb0b76d
-    HEAD_REF master
+    REF "v${VERSION}"
+    SHA512 b3197dc9a3cb3922d19375142ae7cdbbb2c9dd768c1ea9fd4873b2702f86f314bdd89b90027e7f9387e960a1c67b4ed4bc310d18673e34e360bbdc04368c3bd3
+    HEAD_REF main
     PATCHES
-        find-zlib.patch
+        fix-build.patch
 )
 
 # Prefer installed config files
 file(REMOVE
-    ${SOURCE_PATH}/fizz/cmake/FindGflags.cmake
-    ${SOURCE_PATH}/fizz/cmake/FindGlog.cmake
+    "${SOURCE_PATH}/fizz/cmake/FindGMock.cmake"
+    "${SOURCE_PATH}/fizz/cmake/FindGflags.cmake"
+    "${SOURCE_PATH}/fizz/cmake/FindGlog.cmake"
+    "${SOURCE_PATH}/fizz/cmake/FindLibevent.cmake"
 )
 
-vcpkg_configure_cmake(
+vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}/fizz"
-    PREFER_NINJA
     OPTIONS
         -DBUILD_TESTS=OFF
         -DBUILD_EXAMPLES=OFF
         -DINCLUDE_INSTALL_DIR:STRING=include
 )
 
-vcpkg_install_cmake()
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/fizz)
+vcpkg_cmake_install()
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/fizz)
 vcpkg_copy_pdbs()
 
-file(READ ${CURRENT_PACKAGES_DIR}/share/fizz/fizz-config.cmake _contents)
-string(REPLACE "lib/cmake/fizz" "share/fizz" _contents "${_contents}")
-file(WRITE ${CURRENT_PACKAGES_DIR}/share/fizz/fizz-config.cmake
-"include(CMakeFindDependencyMacro)
-find_dependency(folly CONFIG)
-find_dependency(ZLIB)
-${_contents}")
+vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/share/fizz/fizz-config.cmake" "lib/cmake/fizz" "share/fizz")
 
 file(REMOVE_RECURSE
-    ${CURRENT_PACKAGES_DIR}/debug/include
-)
+    "${CURRENT_PACKAGES_DIR}/debug/include"
+    "${CURRENT_PACKAGES_DIR}/include/fizz/crypto/aead/test/facebook"
+    "${CURRENT_PACKAGES_DIR}/include/fizz/record/test/facebook"
+    "${CURRENT_PACKAGES_DIR}/include/fizz/server/test/facebook"
+    "${CURRENT_PACKAGES_DIR}/include/fizz/tool/test"
+    "${CURRENT_PACKAGES_DIR}/include/fizz/util/test")
 
-file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/include/fizz/tool/test" "${CURRENT_PACKAGES_DIR}/include/fizz/util/test")
-
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

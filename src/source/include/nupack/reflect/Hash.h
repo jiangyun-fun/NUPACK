@@ -3,22 +3,32 @@
 
 namespace nupack {
 
-template <class T, class=void>
+template <class T=void, class=void>
 struct hash;
 
-NUPACK_DETECT(has_hash, decltype(hash<decay<T>>()(declref<decay<T> const>())));
-NUPACK_DETECT(has_std_hash, decltype(std::hash<T>()(declref<T const>())));
-NUPACK_DETECT(has_member_hash, decltype(declref<T const>().hash()));
+template <>
+struct hash<void> {
+    template <class U>
+    constexpr auto operator()(U const &u) const {return hash<U>()(u);}
+};
 
 /******************************************************************************************/
 
+NUPACK_DETECT(has_std_hash, decltype(std::hash<T>()(declref<T const>())));
+
 template <class T>
 struct hash<T, void_if<has_std_hash<T>>> : std::hash<T> {};
+
+NUPACK_DETECT(has_member_hash, decltype(declref<T const>().hash()));
 
 template <class T>
 struct hash<T, void_if<has_member_hash<T>>> {
     constexpr std::size_t operator()(T const &t) const {return t.hash();}
 };
+
+/******************************************************************************************/
+
+NUPACK_DETECT(has_hash, decltype(hash<T>()(declref<T const>())));
 
 /******************************************************************************************/
 
@@ -72,7 +82,7 @@ struct hash<std::pair<T, U>, void_if<(has_hash<T> && has_hash<U>)>> {
 
 struct MemberHash {
     template <class T>
-    std::size_t operator()(T const &t) {return unpack(members_of(t), hash_of);}
+    std::size_t operator()(T const &t) const {return unpack(members_of(t), hash_of);}
 };
 
 /******************************************************************************************/

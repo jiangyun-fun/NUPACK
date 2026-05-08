@@ -1,214 +1,128 @@
-#[===[.md:
-# vcpkg_download_distfile
+function(vcpkg_download_distfile out_var)
+    cmake_parse_arguments(PARSE_ARGV 1 arg
+        "SKIP_SHA512;SILENT_EXIT;QUIET;ALWAYS_REDOWNLOAD"
+        "FILENAME;SHA512"
+        "URLS;HEADERS"
+    )
 
-Download and cache a file needed for this port.
-
-This helper should always be used instead of CMake's built-in `file(DOWNLOAD)` command.
-
-## Usage
-```cmake
-vcpkg_download_distfile(
-    <OUT_VARIABLE>
-    URLS <http://mainUrl> <http://mirror1>...
-    FILENAME <output.zip>
-    SHA512 <5981de...>
-)
-```
-## Parameters
-### OUT_VARIABLE
-This variable will be set to the full path to the downloaded file. This can then immediately be passed in to [`vcpkg_extract_source_archive`](vcpkg_extract_source_archive.md) for sources.
-
-### URLS
-A list of URLs to be consulted. They will be tried in order until one of the downloaded files successfully matches the SHA512 given.
-
-### FILENAME
-The local name for the file. Files are shared between ports, so the file may need to be renamed to make it clearly attributed to this port and avoid conflicts.
-
-### SHA512
-The expected hash for the file.
-
-If this doesn't match the downloaded version, the build will be terminated with a message describing the mismatch.
-
-### QUIET
-Suppress output on cache hit
-
-### SKIP_SHA512
-Skip SHA512 hash check for file.
-
-This switch is only valid when building with the `--head` command line flag.
-
-### HEADERS
-A list of headers to append to the download request. This can be used for authentication during a download.
-
-Headers should be specified as "<header-name>: <header-value>".
-
-## Notes
-The helper [`vcpkg_from_github`](vcpkg_from_github.md) should be used for downloading from GitHub projects.
-
-## Examples
-
-* [apr](https://github.com/Microsoft/vcpkg/blob/master/ports/apr/portfile.cmake)
-* [fontconfig](https://github.com/Microsoft/vcpkg/blob/master/ports/fontconfig/portfile.cmake)
-* [freetype](https://github.com/Microsoft/vcpkg/blob/master/ports/freetype/portfile.cmake)
-#]===]
-
-include(vcpkg_execute_in_download_mode)
-
-function(vcpkg_download_distfile VAR)
-    set(options SKIP_SHA512 SILENT_EXIT QUIET)
-    set(oneValueArgs FILENAME SHA512)
-    set(multipleValuesArgs URLS HEADERS)
-    # parse parameters such that semicolons in options arguments to COMMAND don't get erased
-    cmake_parse_arguments(PARSE_ARGV 1 vcpkg_download_distfile "${options}" "${oneValueArgs}" "${multipleValuesArgs}")
-
-    if(NOT DEFINED vcpkg_download_distfile_URLS)
+    if(NOT DEFINED arg_URLS)
         message(FATAL_ERROR "vcpkg_download_distfile requires a URLS argument.")
     endif()
-    if(NOT DEFINED vcpkg_download_distfile_FILENAME)
+    if(NOT DEFINED arg_FILENAME)
         message(FATAL_ERROR "vcpkg_download_distfile requires a FILENAME argument.")
     endif()
-    if(NOT _VCPKG_INTERNAL_NO_HASH_CHECK)
-        if(NOT vcpkg_download_distfile_SKIP_SHA512 AND NOT DEFINED vcpkg_download_distfile_SHA512)
-            message(FATAL_ERROR "vcpkg_download_distfile requires a SHA512 argument. If you do not know the SHA512, add it as 'SHA512 0' and re-run this command.")
-        endif()
-        if(vcpkg_download_distfile_SKIP_SHA512 AND DEFINED vcpkg_download_distfile_SHA512)
-            message(FATAL_ERROR "vcpkg_download_distfile must not be passed both SHA512 and SKIP_SHA512.")
+    if(arg_SILENT_EXIT)
+        message(WARNING "SILENT_EXIT no longer has any effect. To resolve this warning, remove SILENT_EXIT.")
+    endif()
+
+    # Note that arg_ALWAYS_REDOWNLOAD implies arg_SKIP_SHA512, and NOT arg_SKIP_SHA512 implies NOT arg_ALWAYS_REDOWNLOAD
+    if(arg_ALWAYS_REDOWNLOAD AND NOT arg_SKIP_SHA512)
+        message(FATAL_ERROR "ALWAYS_REDOWNLOAD requires SKIP_SHA512")
+    endif()
+
+    if(NOT arg_SKIP_SHA512 AND NOT DEFINED arg_SHA512)
+        message(FATAL_ERROR "vcpkg_download_distfile requires a SHA512 argument.
+If you do not know the SHA512, add it as 'SHA512 0' and retry.")
+    elseif(arg_SKIP_SHA512 AND DEFINED arg_SHA512)
+        message(FATAL_ERROR "SHA512 may not be used with SKIP_SHA512.")
+    endif()
+
+    if(_VCPKG_INTERNAL_NO_HASH_CHECK)
+        set(arg_SKIP_SHA512 1)
+    endif()
+
+    if(NOT arg_SKIP_SHA512)
+        if("${arg_SHA512}" STREQUAL "0")
+            string(REPEAT 0 128 arg_SHA512)
+        else()
+            string(LENGTH "${arg_SHA512}" arg_SHA512_length)
+            if(NOT "${arg_SHA512_length}" EQUAL "128" OR NOT "${arg_SHA512}" MATCHES "^[a-zA-Z0-9]*$")
+                message(FATAL_ERROR "Invalid SHA512: ${arg_SHA512}.
+    If you do not know the file's SHA512, set this to \"0\".")
+            endif()
+
+            string(TOLOWER "${arg_SHA512}" arg_SHA512)
         endif()
     endif()
 
-    set(downloaded_file_path ${DOWNLOADS}/${vcpkg_download_distfile_FILENAME})
-    set(download_file_path_part "${DOWNLOADS}/temp/${vcpkg_download_distfile_FILENAME}")
-
-    # Works around issue #3399
-    if(IS_DIRECTORY "${DOWNLOADS}/temp")
-        # Delete "temp0" directory created by the old version of vcpkg
-        file(REMOVE_RECURSE "${DOWNLOADS}/temp0")
-
-        file(GLOB temp_files "${DOWNLOADS}/temp")
-        file(REMOVE_RECURSE ${temp_files})
-    else()
-      file(MAKE_DIRECTORY "${DOWNLOADS}/temp")
-    endif()
-
-    function(test_hash FILE_PATH FILE_KIND CUSTOM_ERROR_ADVICE)
-        if(_VCPKG_INTERNAL_NO_HASH_CHECK)
-            # When using the internal hash skip, do not output an explicit message.
-            return()
-        endif()
-        if(vcpkg_download_distfile_SKIP_SHA512)
-            message(STATUS "Skipping hash check for ${FILE_PATH}.")
-            return()
-        endif()
-
-        file(SHA512 ${FILE_PATH} FILE_HASH)
-        if(NOT FILE_HASH STREQUAL vcpkg_download_distfile_SHA512)
-            message(FATAL_ERROR
-                "\nFile does not have expected hash:\n"
-                "        File path: [ ${FILE_PATH} ]\n"
-                "    Expected hash: [ ${vcpkg_download_distfile_SHA512} ]\n"
-                "      Actual hash: [ ${FILE_HASH} ]\n"
-                "${CUSTOM_ERROR_ADVICE}\n")
-        endif()
-    endfunction()
+    set(downloaded_file_path "${DOWNLOADS}/${arg_FILENAME}")
 
     if(EXISTS "${downloaded_file_path}")
-        if(NOT vcpkg_download_distfile_QUIET)
-            message(STATUS "Using cached ${downloaded_file_path}")
-        endif()
-        test_hash("${downloaded_file_path}" "cached file" "Please delete the file and retry if this file should be downloaded again.")
-    else()
-        if(_VCPKG_NO_DOWNLOADS)
-            message(FATAL_ERROR "Downloads are disabled, but '${downloaded_file_path}' does not exist.")
-        endif()
+        if(arg_SKIP_SHA512)
+            if(NOT arg_ALWAYS_REDOWNLOAD)
+                if(NOT _VCPKG_INTERNAL_NO_HASH_CHECK)
+                    message(STATUS "Skipping hash check and using cached ${arg_FILENAME}")
+                endif()
 
-        # Tries to download the file.
-        list(GET vcpkg_download_distfile_URLS 0 SAMPLE_URL)
-        if(_VCPKG_DOWNLOAD_TOOL STREQUAL "ARIA2" AND NOT SAMPLE_URL MATCHES "aria2")
-            vcpkg_find_acquire_program("ARIA2")
-            message(STATUS "Downloading ${vcpkg_download_distfile_FILENAME}...")
-            if(vcpkg_download_distfile_HEADERS)
-                foreach(header ${vcpkg_download_distfile_HEADERS})
-                    list(APPEND request_headers "--header=${header}")
-                endforeach()
-            endif()
-            vcpkg_execute_in_download_mode(
-                COMMAND ${ARIA2} ${vcpkg_download_distfile_URLS}
-                -o temp/${vcpkg_download_distfile_FILENAME}
-                -l download-${vcpkg_download_distfile_FILENAME}-detailed.log
-                ${request_headers}
-                OUTPUT_FILE download-${vcpkg_download_distfile_FILENAME}-out.log
-                ERROR_FILE download-${vcpkg_download_distfile_FILENAME}-err.log
-                RESULT_VARIABLE error_code
-                WORKING_DIRECTORY ${DOWNLOADS}
-            )
-            if (NOT "${error_code}" STREQUAL "0")
-                message(STATUS
-                    "Downloading ${vcpkg_download_distfile_FILENAME}... Failed.\n"
-                    "    Exit Code: ${error_code}\n"
-                    "    See logs for more information:\n"
-                    "        ${DOWNLOADS}/download-${vcpkg_download_distfile_FILENAME}-out.log\n"
-                    "        ${DOWNLOADS}/download-${vcpkg_download_distfile_FILENAME}-err.log\n"
-                    "        ${DOWNLOADS}/download-${vcpkg_download_distfile_FILENAME}-detailed.log\n"
-                )
-                set(download_success 0)
-            else()
-                file(REMOVE
-                    ${DOWNLOADS}/download-${vcpkg_download_distfile_FILENAME}-out.log
-                    ${DOWNLOADS}/download-${vcpkg_download_distfile_FILENAME}-err.log
-                    ${DOWNLOADS}/download-${vcpkg_download_distfile_FILENAME}-detailed.log
-                )
-                set(download_success 1)
+                set("${out_var}" "${downloaded_file_path}" PARENT_SCOPE)
+                return()
             endif()
         else()
-            foreach(url IN LISTS vcpkg_download_distfile_URLS)
-                message(STATUS "Downloading ${url} -> ${vcpkg_download_distfile_FILENAME}...")
-                if(vcpkg_download_distfile_HEADERS)
-                    foreach(header ${vcpkg_download_distfile_HEADERS})
-                        list(APPEND request_headers HTTPHEADER ${header})
-                    endforeach()
-                endif()
-                file(DOWNLOAD "${url}" "${download_file_path_part}" STATUS download_status ${request_headers})
-                list(GET download_status 0 status_code)
-                if (NOT "${status_code}" STREQUAL "0")
-                    message(STATUS "Downloading ${url}... Failed. Status: ${download_status}")
-                    set(download_success 0)
+            # Note that NOT arg_SKIP_SHA512 implies NOT arg_ALWAYS_REDOWNLOAD
+            file(SHA512 "${downloaded_file_path}" file_hash)
+            if("${file_hash}" STREQUAL "${arg_SHA512}")
+                message(STATUS "Using cached ${arg_FILENAME}")
+                set("${out_var}" "${downloaded_file_path}" PARENT_SCOPE)
+                return()
+            endif()
+
+            # The existing file hash mismatches. Perhaps the expected SHA512 changed. Try adding the expected SHA512
+            # into the file name and try again to hopefully not conflict.
+            get_filename_component(filename_component "${arg_FILENAME}" NAME_WE)
+            get_filename_component(extension_component "${arg_FILENAME}" EXT)
+            get_filename_component(directory_component "${arg_FILENAME}" DIRECTORY)
+            string(SUBSTRING "${arg_SHA512}" 0 8 hash)
+            set(arg_FILENAME "${directory_component}${filename_component}-${hash}${extension_component}")
+            set(downloaded_file_path "${DOWNLOADS}/${arg_FILENAME}")
+            if(EXISTS "${downloaded_file_path}")
+                if(_VCPKG_NO_DOWNLOADS)
+                    set(advice_message "note: Downloads are disabled. Please ensure that the expected file is placed at ${downloaded_file_path} and retry.")
                 else()
-                    set(download_success 1)
-                    break()
+                    set(advice_message "note: You may be able to resolve this failure by redownloading the file. To do so, delete ${downloaded_file_path} and retry.")
                 endif()
-            endforeach(url)
-        endif()
 
-        if (NOT vcpkg_download_distfile_SILENT_EXIT)
-            if (NOT download_success)
+                file(SHA512 "${downloaded_file_path}" file_hash)
+                if("${file_hash}" STREQUAL "${arg_SHA512}")
+                    message(STATUS "Using cached ${arg_FILENAME}")
+                    set("${out_var}" "${downloaded_file_path}" PARENT_SCOPE)
+                    return()
+                endif()
+
+                # Note that the extra leading spaces are here to prevent CMake from badly attempting to wrap this
                 message(FATAL_ERROR
-                "    \n"
-                "    Failed to download file.\n"
-                "    If you use a proxy, please set the HTTPS_PROXY and HTTP_PROXY environment\n"
-                "    variables to \"https://user:password@your-proxy-ip-address:port/\".\n"
-                "    \n"
-                "    If error with status 4 (Issue #15434),\n"
-                "    try setting \"http://user:password@your-proxy-ip-address:port/\".\n"
-                "    \n"
-                "    Otherwise, please submit an issue at https://github.com/Microsoft/vcpkg/issues\n")
-            else()
-                test_hash("${download_file_path_part}" "downloaded file" "The file may have been corrupted in transit. This can be caused by proxies. If you use a proxy, please set the HTTPS_PROXY and HTTP_PROXY environment variables to \"https://user:password@your-proxy-ip-address:port/\".\n")
-                get_filename_component(downloaded_file_dir "${downloaded_file_path}" DIRECTORY)
-                file(MAKE_DIRECTORY "${downloaded_file_dir}")
-                file(RENAME ${download_file_path_part} ${downloaded_file_path})
-            endif()
-        else()
-            if (NOT download_success)
-                message(WARNING
-                "    \n"
-                "    Failed to download file.\n")
-            else()
-                test_hash("${download_file_path_part}" "downloaded file" "The file may have been corrupted in transit. This can be caused by proxies. If you use a proxy, please set the HTTPS_PROXY and HTTP_PROXY environment variables to \"https://user:password@your-proxy-ip-address:port/\".\n")
-                get_filename_component(downloaded_file_dir "${downloaded_file_path}" DIRECTORY)
-                file(MAKE_DIRECTORY "${downloaded_file_dir}")
-                file(RENAME ${download_file_path_part} ${downloaded_file_path})
+                    "  ${downloaded_file_path}: error: existing downloaded file had an unexpected hash\n"
+                    "  Expected: ${arg_SHA512}\n"
+                    "  Actual  : ${file_hash}\n"
+                    "  ${advice_message}")
             endif()
         endif()
     endif()
-    set(${VAR} ${downloaded_file_path} PARENT_SCOPE)
+
+    # vcpkg_download_distfile_ALWAYS_REDOWNLOAD only triggers when NOT _VCPKG_NO_DOWNLOADS
+    # this could be de-morgan'd out but it's more clear this way
+    if(_VCPKG_NO_DOWNLOADS)
+        message(FATAL_ERROR "Downloads are disabled, but '${downloaded_file_path}' does not exist.")
+    endif()
+
+    vcpkg_list(SET params "x-download" "${downloaded_file_path}")
+    foreach(url IN LISTS arg_URLS)
+        vcpkg_list(APPEND params "--url=${url}")
+    endforeach()
+
+    foreach(header IN LISTS arg_HEADERS)
+        list(APPEND params "--header=${header}")
+    endforeach()
+
+    if(arg_SKIP_SHA512)
+        vcpkg_list(APPEND params "--skip-sha512")
+    else()
+        vcpkg_list(APPEND params "--sha512=${arg_SHA512}")
+    endif()
+
+    vcpkg_execute_in_download_mode(COMMAND "$ENV{VCPKG_COMMAND}" ${params} RESULT_VARIABLE error_code)
+    if(NOT "${error_code}" EQUAL "0")
+        message(FATAL_ERROR "Download failed, halting portfile.")
+    endif()
+
+    set("${out_var}" "${downloaded_file_path}" PARENT_SCOPE)
 endfunction()

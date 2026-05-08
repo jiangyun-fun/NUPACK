@@ -8,87 +8,100 @@ namespace nupack {
 /******************************************************************************************/
 
 /// Heap that cannot have its size changed once constructed
-template <class T, template <class...> class V=vec, class Comp=less_t>
+template <class V, class Comp=less_t>
 class StaticHeap {
 protected:
-    V<T> c;
+    V c;
 
 public:
-    using container_type = V<T>;
-    using value_type = T;
+    using container_type = V;
+    using value_type = value_type_of<V>;
 
-    template <class ...Ts> explicit StaticHeap(Ts &&...ts) : c(fw<Ts>(ts)...) {
-        std::make_heap(begin_of(c), end_of(c), Comp());
+    StaticHeap(container_type v) : c(std::move(v)) {}
+
+    template <class ...Ts>
+    explicit StaticHeap(Ts &&...ts) : c(fw<Ts>(ts)...) {
+        std::make_heap(std::begin(c), std::end(c), Comp());
     };
 
-    void pop() {
-        std::pop_heap(begin_of(c), end_of(c), Comp());
+    auto begin() const {return std::begin(c);}
+    auto end() const {return std::end(c);}
+
+    /// Retrieve maximum element and remove it from the heap
+    value_type pop() {
+        std::pop_heap(std::begin(c), std::end(c), Comp());
+        value_type out = std::move(back(c));
         c.pop_back();
+        return out;
     }
 
     container_type const & contents() const {return c;}
 
-    value_type const & top() const {return c.front();}
+    /// Retrieve maximum element
+    value_type const & top() const {return *std::begin(c);}
 
     container_type sorted() && {
-        std::sort_heap(begin_of(c), end_of(c), Comp());
+        std::sort_heap(std::begin(c), std::end(c), Comp());
         return std::move(c);
     }
 
     container_type sorted() const & {return StaticHeap(*this).sorted();}
 
-    auto const & comparator() const {return Comp();}
-
-    auto size() const {return len(c);}
+    constexpr auto comparator() const {return Comp();}
+    auto size() const {return std::size(c);}
+    bool empty() const {return std::empty(c);}
 };
 
-NUPACK_DEFINE_TEMPLATE(is_static_heap, StaticHeap, class, template <class ...> class, class);
+NUPACK_DEFINE_TEMPLATE(isStaticHeap, StaticHeap, class, class);
 
 /******************************************************************************************/
 
 /// Heap that can have its size changed once constructed
-template <class T, template <class...> class V=vec, class Comp=less_t>
-class Heap : public StaticHeap<T, V, Comp> {
-    using StaticHeap<T, V, Comp>::c;
+template <class V, class Comp=less_t>
+class Heap : public StaticHeap<V, Comp> {
+    using StaticHeap<V, Comp>::c;
 
 public:
-    using value_type = T;
-    using container_type = V<T>;
-
-    template <class ...Ts> void emplace(Ts &&...ts) {
+    template <class ...Ts>
+    void emplace(Ts &&...ts) {
         c.emplace_back(fw<Ts>(ts)...);
         std::push_heap(begin_of(c), end_of(c), Comp());
     };
 
+    template <class B, class E>
+    void insert(B b, E e) {
+        for (auto it = c.insert(c.end(), b, e); it != end_of(c); ++it)
+            std::push_heap(begin_of(c), std::next(it), Comp());
+    }
+
     void clear() {c.clear();}
 };
 
-NUPACK_DEFINE_TEMPLATE(isHeap, Heap, class, template <class ...> class, class);
+NUPACK_DEFINE_TEMPLATE(isHeap, Heap, class, class);
 
 /******************************************************************************************/
 
 /// Heap that can have its size changed up to a maximum size
-template <class T, template <class...> class V=vec, class Comp=less_t>
-class MaxSizeHeap : public StaticHeap<T, V, Comp> {
-    usize max_;
-    using StaticHeap<T, V, Comp>::c;
+template <class V, class Comp=less_t>
+class MaxSizeHeap : public StaticHeap<V, Comp> {
+    usize m_max;
+    using StaticHeap<V, Comp>::c;
 
 public:
-    using value_type = T;
-    using container_type = V<T>;
-    using StaticHeap<T, V, Comp>::top;
+    using base_type = StaticHeap<V, Comp>;
 
     template <class ...Ts>
-    explicit MaxSizeHeap(usize m, Ts &&...ts) : StaticHeap<T, V, Comp>(fw<Ts>(ts)...), max_(m){};
+    explicit MaxSizeHeap(usize m, Ts &&...ts) : StaticHeap<V, Comp>(fw<Ts>(ts)...), m_max(m){};
 
-    template <class ...Ts> void emplace_if(Ts &&...ts) {
-        if (!max_) return;
-        else if (this->size() < max_) {
+    template <class ...Ts>
+    void emplace_if(Ts &&...ts) {
+        if (!m_max) return;
+        else if (this->size() < m_max) {
             c.emplace_back(fw<Ts>(ts)...);
             std::push_heap(begin_of(c), end_of(c), Comp());
         } else {
-            value_type t{fw<Ts>(ts)...};
-            if (Comp()(t, top())) {
+            typename base_type::value_type t{fw<Ts>(ts)...};
+            if (Comp()(t, base_type::top())) {
                 std::pop_heap(begin_of(c), end_of(c), Comp());
                 c.back() = std::move(t);
                 std::push_heap(begin_of(c), end_of(c), Comp());
@@ -96,12 +109,12 @@ public:
         }
     }
 
-    auto max_elements() const {return max_;}
+    auto max() const {return m_max;}
 
     void clear() {c.clear();}
 };
 
-NUPACK_DEFINE_TEMPLATE(isMaxSizeHeap, MaxSizeHeap, class, template <class...> class, class);
+NUPACK_DEFINE_TEMPLATE(isMaxSizeHeap, MaxSizeHeap, class, class);
 
 /******************************************************************************************/
 

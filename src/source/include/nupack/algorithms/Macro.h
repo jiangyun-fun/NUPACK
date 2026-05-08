@@ -99,12 +99,16 @@ namespace traits { \
 
 /// Make a functor forwarding two arguments T &&t and U &&u to a given expression
 #define NUPACK_BINARY_FUNCTOR(NAME, Op) \
-struct NAME##_t {template <class T, class U> constexpr auto operator()(T &&t, U &&u) const -> decltype(Op) {return Op;}}; \
+template <class T0, class U0, class SFINAE=void> \
+struct NAME##_functor_t {template <class T, class U> constexpr auto operator()(T &&t, U &&u) const -> decltype(Op) {return Op;}}; \
+struct NAME##_t {template <class T, class U> constexpr auto operator()(T &&t, U &&u) const -> decltype(NAME##_functor_t<no_qual<T>, no_qual<U>>()(std::forward<T>(t), std::forward<U>(u))) {return NAME##_functor_t<no_qual<T>, no_qual<U>>()(std::forward<T>(t), std::forward<U>(u));}}; \
 static constexpr auto NAME = NAME##_t()
 
 /// Make a functor forwarding one argument T &&t to a given expression
 #define NUPACK_UNARY_FUNCTOR(NAME, Op) \
-struct NAME##_t {template <class T> constexpr auto operator()(T &&t) const -> decltype(Op) {return Op;}}; \
+template <class T0, class SFINAE=void> \
+struct NAME##_functor_t {template <class T> constexpr auto operator()(T &&t) const -> decltype(Op) {return Op;}}; \
+struct NAME##_t {template <class T> constexpr auto operator()(T &&t) const -> decltype(NAME##_functor_t<no_qual<T>>()(std::forward<T>(t))) {return NAME##_functor_t<no_qual<T>>()(std::forward<T>(t));}}; \
 static constexpr auto NAME = NAME##_t()
 
 /// Make a functor (lambda) forwarding all arguments to a given expression

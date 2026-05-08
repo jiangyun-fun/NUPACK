@@ -2,14 +2,38 @@
  * @brief Contains System, representing all strands present in a State or set of States
  */
 #pragma once
-#include "../types/Sequence.h"
-#include "../types/PairList.h"
+#include "../types/Complex.h"
+#include "../types/Structure.h"
+#include "../types/Alphabet.h"
 #include "../iteration/Transform.h"
 #include "../standard/Ptr.h"
 #include "../standard/Set.h"
-#include "ComplexSet.h"
+#include "StateComplexes.h"
 
 namespace nupack {
+
+/**************************************************************************************/
+
+struct SystemData {
+    /// Contiguous container for concatenated strands
+    Sequence total_sequence;
+    /// Views into total_sequence representing each strand
+    SubsequenceList strands;
+    /// Start/end of each strand, strand of each base
+    vec<iseq> nicks, strand_map;
+    Alphabet alphabet = DNA;
+
+    NUPACK_REFLECT(SystemData, total_sequence, strands, nicks, strand_map, alphabet);
+
+    // void make_strands() {
+    //     strands.clear();
+    //     if (total_sequence.empty()) return;
+    //     for (auto i : range(len(nicks) - 1))
+    //         strands.emplace_back(iterator_at(nicks[i]), iterator_at(nicks[i+1]));
+    // }
+};
+
+/**************************************************************************************/
 
 /// The system is stored as a contiguous, concatenated array of bases
 /// for all the strands. The strands are kept as views into this sequence
@@ -17,90 +41,63 @@ namespace nupack {
 /// of the system contents. However, the system is so small in memory
 /// that it is probably easiest to reserve a large chunk of sequence space
 /// so that iterators will not be invalidated
-class System : public ConstIndexable<System>, TotallyOrdered {
-
-    void make_strands() {
-        strands.clear();
-        if (total_sequence.empty()) return;
-        for (auto i : range(len(nicks) - 1))
-            strands.emplace_back(iterator_at(nicks[i]), iterator_at(nicks[i+1]));
-    }
-
-public:
+struct System : public ConstIndexable<System>, TotallyOrdered {
+    std::shared_ptr<SystemData const> data;
     using StrandIter = SubsequenceList::const_iterator;
 
-    System() {}
+    NUPACK_REFLECT(System, data);
+
+    System() = default;
 
     /// Make a System from a container of strands
-    System(StrandList const &v);
-
-    /// Make a System from a string or container of strings
-    template <class S=vec<string>>
-    System(S const &s) : System(to_sequences<StrandList>(s)) {}
-
+    System(SequenceList const &v);
+    
     /**************************************************************************************/
 
-    /// Contiguous container for concatenated strands
-    Sequence total_sequence;
-    /// Views into total_sequence representing each strand
-    SubsequenceList strands;
-    /// Start/end of each strand, strand of each base
-    small_vec<iseq> nicks, strand_map;
+    Sequence const &sequence() const {return data->total_sequence;}
+    SubsequenceList const & iter() const {return data->strands;}
+    auto const & strands() const {return data->strands;}
 
-    NUPACK_REFLECT(System, total_sequence, strands, nicks, strand_map);
+    SequenceList to_complex() const {return indirect_view(strands(), [](auto const &v) {return view(v).offset(1, -1);});}
 
-    /**************************************************************************************/
-
-    System(System const &y)  : total_sequence(y.total_sequence), nicks(y.nicks),
-        strand_map(y.strand_map) {make_strands();}
-
-    System(System &&y) : total_sequence(std::move(y.total_sequence)), nicks(std::move(y.nicks)),
-        strand_map(std::move(y.strand_map)) {make_strands();}
-
-    void swap(System &y) {std::swap(*this, y);}
-
-    System & operator=(System const &y) {members() = members_of(y); make_strands(); return *this;}
-    System & operator=(System &&y) {members() = members_of(std::move(y)); make_strands(); return *this;}
-
-    /**************************************************************************************/
-
-    SubsequenceList const & iter() const {return strands;}
-    bool operator<(System const &o) const {return this != &o && total_sequence < o.total_sequence;}
-    bool operator==(System const &o) const {return this == &o || total_sequence == o.total_sequence;}
-    auto hash() const {return hash_of(total_sequence);}
+    bool operator<(System const &o) const {return data != o.data && sequence() < o.sequence();}
+    bool operator==(System const &o) const {return data == o.data || sequence() == o.sequence();}
+    auto hash() const {return hash_of(sequence());}
 
     /// Return index corresponding to iterator in the total sequence
-    auto index(BaseIter it) const {return it - total_sequence.data();}
+    auto index(BaseIter it) const {return it - sequence().data();}
     /// Return starting index of a strand from the strand iterator
-    auto begin_of_strand(StrandIter it) const {return at(nicks, it - begin_of(strands));}
+    auto begin_of_strand(StrandIter it) const {return at(data->nicks, it - begin_of(data->strands));}
     /// Return past-the-end index of a strand from the strand iterator
-    auto end_of_strand(StrandIter it) const {return at(nicks, it - begin_of(strands) + 1);}
+    auto end_of_strand(StrandIter it) const {return at(data->nicks, it - begin_of(data->strands) + 1);}
     /// Return next strand within a loop structure recursion
     template <class V>
     StrandIter next_strand_it(value_type_of<V> j, V const &pairs) const {
-        while (j != begin_of_strand(strand_it_of(j))) j = pairs[--j]; return strand_it_of(j);}
+        while (j != begin_of_strand(strand_it_of(j))) j = pairs[--j]; 
+        return strand_it_of(j);
+    }
     /// Return strand index of a sequence iterator
-    auto strand_of(BaseIter it) const {return strand_map[it - total_sequence.data()];}
+    auto strand_of(std::size_t i) const {return data->strand_map[i];}
+    /// Return strand index of a sequence index
+    auto strand_of(BaseIter it) const {return strand_of(it - sequence().data());}
     /// Return strand iterator of a sequence index
-    StrandIter strand_it_of(int loc) const {return next(strands, strand_map[loc]);}
+    StrandIter strand_it_of(int loc) const {return next(data->strands, data->strand_map[loc]);}
     /// Return whether a position i is the past-the-end index of
     bool is_strand_end(iseq i) const {
-        if (i == len(total_sequence)) return true;
-        return (total_sequence[i] == Base('_') && total_sequence[i - 1] == Base('_'));
+        if (i == len(sequence())) return true;
+        return (sequence()[i] == Base::null() && sequence()[i - 1] == Base::null());
     }
     /// Return iterator in sequence from an index
-    BaseIter iterator_at(iseq i) const {return total_sequence.data() + i;}
-    BaseIter total_begin() const {return total_sequence.data();}
-    BaseIter total_end() const {return total_sequence.data() + total_sequence.size();}
+    BaseIter iterator_at(iseq i) const {return sequence().data() + i;}
+    Base base_at(iseq i) const {return sequence()[i];}
+    BaseIter total_begin() const {return sequence().data();}
+    BaseIter total_end() const {return sequence().data() + sequence().size();}
     /// Number of nucleotides in the system
-    auto n_bases() const {return len(total_sequence) - 2 * len(strands);}
+    auto n_bases() const {return len(sequence()) - 2 * len(data->strands);}
 
-    auto save_repr() const {return vmap<StrandList>(strands, view);}
+    auto save_repr() const {return vmap<SequenceList>(data->strands, view);}
 
-    void load_repr(StrandList const &seqs) {if (!seqs.empty()) *this = System(seqs);}
-
-    void reserve(iseq n) {total_sequence.reserve(n);}
-
+    void load_repr(SequenceList const &seqs) {if (!seqs.empty()) *this = System(seqs);}
 };
 
 /******************************************************************************************/
@@ -119,7 +116,7 @@ void build_complex(V &loops, System const &s, PairList const &pairs, vec<System:
         if (loops[index].next_pair(s, len(loops), std::get<1>(q), std::get<2>(q), pairs, strands)) {
             auto d = std::get<1>(q), e = pairs[d];
             std::get<1>(q) = e;
-            NUPACK_DREQUIRE(d, !=, e);
+            NUPACK_QUICK_REQUIRE(d, !=, e);
             queue.emplace_back(len(loops), d, e);
             loops.emplace_back(len(loops), index, s.iterator_at(d), ts...);
         } else {
@@ -132,23 +129,23 @@ void build_complex(V &loops, System const &s, PairList const &pairs, vec<System:
 
 /// Recurse through a complex of loops calling a callback on each new loop, takes starting index and returns ending index
 // Edge build_complex(vec<StrandIter> &its, Edge, PartialLoop, PairList const &pairs, Callback const &o) const;
-/// Recurse through each complex in a PairList and return a ComplexSet
+/// Recurse through each complex in a PairList and return a StateComplexes
 template <class V, class ...Ts>
-ComplexSet build_complex_set(V &loops, System const &s, PairList const &pairs, Ts const &...ts) {
-    if (len(pairs) != sum(s.strands, len))
-        NUPACK_ERROR("number of nucleotides doesn't match length of pair list", len(pairs), sum(s.strands, len));
+StateComplexes build_complex_set(V &loops, System const &s, PairList const &pairs, Ts const &...ts) {
+    if (len(pairs) != sum(s.strands(), len))
+        NUPACK_ERROR("number of nucleotides doesn't match length of pair list", len(pairs), sum(s.strands(), len));
 
-    ComplexSet out{len(s.strands)};
+    StateComplexes out{len(s.strands())};
 
-    auto pool = make_set(iterators(s.strands));
+    auto pool = make_set(iterators(s.strands()));
     while(!pool.empty()) {
         auto p = *begin_of(pool); // take the first strand not incorporated already
         vec<System::StrandIter> strands = {p};
         build_complex(loops, s, pairs, strands, ts...);
         // reconstruct the order of strands in the complex
-        out.emplace_back(vmap<ComplexSet::Indices>(strands, [&](auto it) {
+        out.emplace_back(vmap<StateComplexes::Indices>(strands, [&](auto it) {
             pool.erase(it);
-            return it - begin_of(s.strands);
+            return it - begin_of(s.strands());
         }));
     }
     return out;

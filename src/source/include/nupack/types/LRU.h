@@ -81,8 +81,8 @@ struct LRU : Iterable<LRU<K, V, L, List_, Map_>> {
 
     /**************************************************************************************/
 
-    auto read_lock() const {return shared_lock(mut);}
-    auto write_lock() const {return unique_lock(mut);}
+    auto read_lock() const {return std::shared_lock<SharedMutex>(mut);}
+    auto write_lock() const {return std::unique_lock<SharedMutex>(mut);}
 
     auto key_comp() const {return map.key_comp();}
 
@@ -94,7 +94,7 @@ struct LRU : Iterable<LRU<K, V, L, List_, Map_>> {
     bool pop_back() {
         if (contents.empty()) return false;
         auto const m = map.find(contents.back().first);
-        NUPACK_DASSERT(m != std::end(map));
+        NUPACK_QUICK_ASSERT(m != std::end(map));
         map.erase(m);
         erase_list_iterator(std::prev(contents.end()));
         return true;

@@ -12,38 +12,43 @@
 #include <istream>
 #include <string>
 #include <string_view>
+#include <vector>
+#include "../standard/Map.h"
 
-namespace nupack { namespace io {
+namespace nupack::io {
 
-bool iequals(char const *, char const *);
-bool iequals(std::string const &, std::string const &);
+// run length encoding of string with at least min consecutive characters
+// if min < 2, the full string will be returned without modification
+std::string run_length_encoding(std::string s, std::size_t min=3) noexcept;
 
-template <class V, class S>
-auto ifind(V &&v, S const &s) {
-    auto it = begin_of(v);
-    auto const e = end_of(v);
-    for (; it != e; ++it) if (iequals(*it, s)) break;
-    return it;
-}
+// Case-insensitive comparison of strings
+bool iequals(std::string_view s, std::string_view t) noexcept;
 
-/// Returns length of deduced string minus sequence delimiters
-std::size_t repeat_char_length(std::string_view s) noexcept;
-
-/// Fills a given iterator from a string with repeated characters; returns 1 past the last iterator written to
-template <class Iter>
-Iter repeat_char(Iter o, std::string_view s) {
+// From a run length encoded string, call a functor with each character and how many times it is repeated
+template <class F>
+void run_length_decode(std::string_view s, F &&f) {
     auto b = s.begin(), e = s.end();
-    if (b == e || std::isdigit(*b)) return o;
+    char last = '\0';
     while (b != e) {
         if (std::isdigit(*b)) {
-            value_type_of<Iter> const c{*(b - 1)};
             auto const n = std::strtoul(b, const_cast<char **>(&b), 10);
-            if (n > 1) o = std::fill_n(o, n - 1, c);
-            else if (n == 0) --o;
-        } else *(o++) = value_type_of<Iter>{*(b++)};
+            NUPACK_REQUIRE(n, !=, ULONG_MAX, "Number of characters too large to represent in run-length-encoding", s);
+            if (last != '\0' && n) f(last, n);
+            last = '\0';
+        } else {
+            if (last != '\0') f(last, 1);
+            last = *b;
+            ++b;
+        }
     }
-    return o;
+    if (last != '\0') f(last, 1);
 }
+
+/// Returns length of deduced string
+std::size_t decoded_length(std::string_view s) noexcept;
+
+/// Returns length of deduced string minus sequence delimiters
+std::size_t decoded_length_without_separators(std::string_view s) noexcept;
 
 /******************************************************************************************/
 
@@ -133,7 +138,7 @@ void to_pairs(iseq *v, iseq const n, char const *dp);
 
 template <class V=vec<iseq>>
 V to_pairs(std::string_view dp) {
-    auto n = repeat_char_length(dp);
+    auto n = decoded_length_without_separators(dp);
     V v(n, {});
     if (n) to_pairs(&(v[0]), n, dp.begin());
     return v;
@@ -172,4 +177,4 @@ template <class V1, class V2> string to_dp(V1 const &pairs, V2 const &nicks) {
 
 /******************************************************************************************/
 
-}}
+}

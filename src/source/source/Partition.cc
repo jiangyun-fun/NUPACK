@@ -19,7 +19,7 @@ vec<small_vec<bool>> combinations(uint n) {
 
 /******************************************************************************************/
 
-void recurse_subsets(small_vec<std::uint32_t> &p, std::size_t n, std::function<void()> const &f) {
+void recurse_subsets(vec<std::uint32_t> &p, std::size_t n, std::function<void()> const &f) {
     if (n == 0) {
         f();
     } else if (n == 1) {
@@ -37,7 +37,7 @@ void recurse_subsets(small_vec<std::uint32_t> &p, std::size_t n, std::function<v
 
 /******************************************************************************************/
 
-void recurse_partitions(small_vec<small_vec<std::uint32_t>> &p, bool subset, std::size_t n, std::function<void()> const &f) {
+void recurse_partitions(vec<vec<std::uint32_t>> &p, bool subset, std::size_t n, std::function<void()> const &f) {
     if (n == 0) {
         if (subset) f();
     } else if (n == 1) {

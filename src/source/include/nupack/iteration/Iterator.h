@@ -196,13 +196,16 @@ template <class T> struct ReverseIter : WrapIter<ReverseIter<T>, T> {
 
     using base_type::base_type;
 
-    template <int B=1, NUPACK_IF(B && can_decrement<T>)> constexpr decltype(auto) operator++() {--iter; return *this;}
-    template <int B=1, NUPACK_IF(B && can_increment<T>)> constexpr decltype(auto) operator--() {++iter; return *this;}
+    template <int B=1, NUPACK_IF(B && can_decrement<T>)>
+    constexpr decltype(auto) operator++() {--iter; return *this;}
 
-    template <int B=1, NUPACK_IF(B && (can_copy<T>) && (can_increment<T>))>
-    constexpr auto operator++(int) {ReverseIter copy{*this}; --iter; return copy;}
+    template <int B=1, NUPACK_IF(B && can_increment<T>)>
+    constexpr decltype(auto) operator--() {++iter; return *this;}
 
     template <int B=1, NUPACK_IF(B && (can_copy<T>) && (can_decrement<T>))>
+    constexpr auto operator++(int) {ReverseIter copy{*this}; --iter; return copy;}
+
+    template <int B=1, NUPACK_IF(B && (can_copy<T>) && (can_increment<T>))>
     constexpr auto operator--(int) {ReverseIter copy{*this}; ++iter; return copy;}
 
     template <class N> constexpr auto operator+=(N &&n) -> decltype(iter -= n, declref<ReverseIter>()) {iter -= n; return *this;}

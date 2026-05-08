@@ -1,38 +1,43 @@
+
+string(REPLACE "." "" LIBSVM_VERSION "${VERSION}")
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO cjlin1/libsvm
-    REF v323
-    SHA512 c4abd408acf860c76cfc743e6c65d241fcb18443e741fc0f557f7cf7b4d0913c05f3afc5d49de8a42ff88db6fc7b046d08bcb0a3d2a24ba23e297ed1cfbb9131
+    REF "v${LIBSVM_VERSION}"
+    SHA512 b05d1153c17bb585495785372810807ff695afbda23dd88ecb67a282d7c752068e2a0f6fa779aca2132c6bf3396bdf10b97665849e4aae4c76de98c2f095beab
     HEAD_REF master
 )
 
-file(COPY ${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt DESTINATION ${SOURCE_PATH})
+file(COPY "${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt" DESTINATION "${SOURCE_PATH}")
 
 vcpkg_check_features(
     OUT_FEATURE_OPTIONS FEATURE_OPTIONS
-    tools SVM_BUILD_TOOLS
+    FEATURES
+        tools SVM_BUILD_TOOLS
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS_DEBUG
         -DSVM_BUILD_TOOLS=OFF
     OPTIONS_RELEASE
         ${FEATURE_OPTIONS}
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
 
 vcpkg_copy_pdbs()
 
-vcpkg_fixup_cmake_targets(CONFIG_PATH share/unofficial-${PORT} TARGET_PATH share/unofficial-${PORT})
+vcpkg_cmake_config_fixup(PACKAGE_NAME "unofficial-${PORT}" CONFIG_PATH "share/unofficial-${PORT}")
 
-if ("tools" IN_LIST FEATURES)
-    vcpkg_copy_tools(TOOL_NAMES svm-predict svm-scale svm-toy svm-train AUTO_CLEAN)
-endif ()
+if("tools" IN_LIST FEATURES)
+    if(VCPKG_TARGET_IS_WINDOWS)
+        vcpkg_copy_tools(TOOL_NAMES svm-predict svm-scale svm-toy svm-train AUTO_CLEAN)
+    else()
+        vcpkg_copy_tools(TOOL_NAMES svm-predict svm-scale svm-train AUTO_CLEAN)
+    endif()
+endif()
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 
-# Handle copyright
-configure_file(${SOURCE_PATH}/COPYRIGHT ${CURRENT_PACKAGES_DIR}/share/${PORT}/copyright COPYONLY)
+file(INSTALL "${SOURCE_PATH}/COPYRIGHT" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)

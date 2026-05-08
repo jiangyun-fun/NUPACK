@@ -1,7 +1,7 @@
 #include <nupack/design/Decomposition.h>
 #include <nupack/design/DesignParameters.h>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 
 
@@ -141,13 +141,13 @@ void ComplexNode::structure_decompose(uint min_size, uint min_helix) {
  * @param mods the set of models consistent with the parent complex model
  *     specification to use when computing thermodynamic information
  */
-bool ComplexNode::probability_decompose(DecompositionParameters const &params,
+bool ComplexNode::probability_decompose(Env const &env, DecompositionParameters const &params,
         Sequence const &s, ThermoEnviron &t_env, int depth, LevelSpecification const &indiv, EngineObserver &obs) {
     bool revoke_cache = false;
     depth = indiv.get_depth(index, depth);
 
     if (depth <= 0 || (children.empty() && !indiv)) {
-        auto probs = dynamic_program(Local(), t_env, s, 0, params, {}, obs).first;
+        auto probs = dynamic_program(env, t_env, s, 0, params, {}, obs).first;
         auto optimal_splits = minimal_splits(probs, params.f_split, params.N_split, params.H_split, structure);
         // BEEP(key_view(children), optimal_splits);
 
@@ -165,7 +165,7 @@ bool ComplexNode::probability_decompose(DecompositionParameters const &params,
     }
 
     child_op([&](auto &c) {
-        revoke_cache |= c.probability_decompose(params, s, t_env, depth-1, indiv, obs);
+        revoke_cache |= c.probability_decompose(env, params, s, t_env, depth-1, indiv, obs);
     });
     if (revoke_cache) cache.revoke_non_root();
     return revoke_cache;
@@ -189,17 +189,16 @@ bool ComplexNode::probability_decompose(DecompositionParameters const &params,
  * @return either the computed value for this node, or the merged results of
  *     its children
  */
-ThermoData ComplexNode::dynamic_program(Local env, ThermoEnviron &t_env, Sequence const &s, uint depth,
+ThermoData ComplexNode::dynamic_program(Env const &env, ThermoEnviron &t_env, Sequence const &s, uint depth,
         DecompositionParameters const &params, LevelSpecification const &indiv, EngineObserver &obs) const {
     // if (!obs.slowdown) throw; /* enable this to debug cases where obs is not getting passed down */
     auto seq = to_nick_sequence(sequence, s);
-    auto mods = t_env.doubled();
     bool use_higher_cache = !(indiv); // ignore if there are any exception nodes
     depth = indiv.get_depth(index, depth);
 
-    auto can_pair = [&](auto pair) {
+    auto can_pair = [&, s=join<Sequence>(seq)](auto pair) {
         uint i, j; std::tie(i, j) = pair;
-        return std::get<0>(mods).can_pair(seq[i], seq[j]);
+        return t_env.model.pairing()(s[i], s[j]);
     };
 
     /* if all children are predicated on pairs that can't form, this node should be evaluated */
@@ -210,16 +209,13 @@ ThermoData ComplexNode::dynamic_program(Local env, ThermoEnviron &t_env, Sequenc
             return cache.get(0);
         }
 
+        Sparsity const sp{.threshold=params.f_sparse, .row_size=0u};
 
-        decltype(newdesign::pair_probability(threshold(env, *this), seq, t_env, obs)) ret;
-        if (len(enforced_pairs) == 0) {
-            ret = newdesign::pair_probability(threshold(env, *this), seq, t_env, obs);
-        } else {
-            ret = newdesign::pair_probability(threshold(env, *this), seq, mods, enforced_pairs, params.dG_clamp, obs);
-        }
-
+        auto ret = (len(enforced_pairs) == 0) ?
+            design::raw_pair_probability(env, seq, t_env, sp, obs) :
+            design::bonus_pair_probability(env, seq, t_env, sp, enforced_pairs, params.dG_clamp, obs);
         /* convert raw N^2 probability matrix to sparse matrix */
-        ThermoData sparse_ret {sparsify(ret.first, params.f_sparse), ret.second};
+        ThermoData sparse_ret {sparsify(ret.first), ret.second};
         cache.add(seq, sparse_ret, 0);
         return sparse_ret;
     } else {
@@ -242,20 +238,20 @@ ThermoData ComplexNode::dynamic_program(Local env, ThermoEnviron &t_env, Sequenc
         }
 
         /* evaluate all children, potentially in parallel */
-        auto eval = [&](auto const &env, auto i) {
+        auto eval = [&](std::size_t i) {
             auto const &c = *at(to_evaluate, i);
             return c.dynamic_program(env, t_env, s, depth-1, params, indiv, obs);
         };
-        vec<ThermoData> child_results = env.map(len(to_evaluate), 1, eval);
+        vec<ThermoData> child_results = env.pool.map(indices(to_evaluate), eval);
 
         /* join pairs of children, potentially in parallel */
-        auto join = [&](auto const &env, auto i) {
+        auto join = [&](std::size_t i) {
             auto pair = at(to_join_on, i);
             auto const &left = at(child_results, 2*i);
             auto const &right = at(child_results, 2*i+1);
             return join_children(pair, left, right);
         };
-        vec<ThermoData> joined_results = env.map(len(to_join_on), 1, join);
+        vec<ThermoData> joined_results = env.pool.map(indices(to_join_on), join);
 
         auto ret = merge_alternatives(joined_results, params.f_sparse);
 
@@ -299,4 +295,4 @@ void ComplexNode::register_indices(vec<int> &registered, uint depth, bool includ
     });
 }
 
-}}
+}

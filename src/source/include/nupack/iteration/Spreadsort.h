@@ -16,20 +16,24 @@ namespace nupack {
 
 /******************************************************************************************/
 
-template <class V, class R, class ...Ts>
-void spreadsort_float(V &&v, R &&r, Ts &&...ts) {
-    auto f = [r=fw<R>(r)](auto &&x, auto offset) {
-        using T = no_qual<decltype(r(fw<decltype(x)>(x)))>;
-        return boost::sort::spreadsort::float_mem_cast<T, uint_of_size<sizeof(T)>>(r(fw<decltype(x)>(x))) >> offset;
+template <class V, class R>
+void spreadsort_float_map(V &&v, R &&r) {
+    auto map = [&r](auto &&x) {
+        auto val = r(x);
+        if (!(val < 0) && !(0 < val)) val = 0; // remove NaN and -0.0
+        return val;
     };
-    boost::sort::spreadsort::float_sort(begin_of(v), end_of(v), std::move(f), fw<Ts>(ts)...);
+    boost::sort::spreadsort::float_sort(begin_of(v), end_of(v),
+        [map](auto &&x, auto offset) { // shift operation
+            using T = decltype(map(x));
+            return boost::sort::spreadsort::float_mem_cast<T, uint_of_size<sizeof(T)>>(map(x)) >> offset;
+        }, [map](auto &&x, auto &&y) { // comparison operation
+            return map(x) < map(y);
+        });
 }
 
-template <class V, NUPACK_IF(is_floating_point<value_type_of<no_qual<V>>>)>
-void spreadsort(V &&v) {boost::sort::spreadsort::float_sort(begin_of(v), end_of(v));}
-
-template <class V, class ...Ts, NUPACK_IF(is_integral<value_type_of<no_qual<V>>>)>
-void spreadsort(V &&v, Ts &&...ts) {boost::sort::spreadsort::integer_sort(begin_of(v), end_of(v), fw<Ts>(ts)...);}
+template <class V, class ...Ts>
+void spreadsort(V &&v, Ts &&...ts) {boost::sort::spreadsort::spreadsort(begin_of(v), end_of(v), fw<Ts>(ts)...);}
 
 /******************************************************************************************/
 

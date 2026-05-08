@@ -1,108 +1,51 @@
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 58f078fe7..46446da8a 100644
+index 8a400b8..6bc5d6c 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -194,71 +194,17 @@ endif (CGNS_ENABLE_FORTRAN AND HAS_FORTRAN)
- option(CGNS_ENABLE_HDF5 "Enable or disable HDF5 interface" "OFF")
+@@ -261,7 +261,8 @@ endif ()
+ option(CGNS_ENABLE_HDF5 "Enable or disable HDF5 interface" "ON")
  if (CGNS_ENABLE_HDF5)
  
 -  if (CGNS_BUILD_SHARED)
--    set (FIND_HDF_COMPONENTS C shared)
--  else (CGNS_BUILD_SHARED)
--    set (FIND_HDF_COMPONENTS C static)
--  endif (CGNS_BUILD_SHARED)
--  message (STATUS "HDF5 find comps: ${FIND_HDF_COMPONENTS}")
--
--  #set (SEARCH_PACKAGE_NAME ${HDF5_PACKAGE_NAME})
--  set (SEARCH_PACKAGE_NAME "hdf5")
--
--  find_package (HDF5 NAMES ${SEARCH_PACKAGE_NAME} COMPONENTS ${FIND_HDF_COMPONENTS})
--  message (STATUS "HDF5 C libs:${HDF5_FOUND} static:${HDF5_static_C_FOUND} and shared:${HDF5_shared_C_FOUND}")
--  if (HDF5_FOUND)
--    add_executable (h5dump IMPORTED)
--    if (NOT HDF5_static_C_FOUND AND NOT HDF5_shared_C_FOUND)
--      set (FIND_HDF_COMPONENTS C)
--
--      find_package (HDF5 NAMES ${SEARCH_PACKAGE_NAME} COMPONENTS ${FIND_HDF_COMPONENTS})
--      message (STATUS "HDF5 libs:${HDF5_FOUND} C:${HDF5_C_FOUND}")
--      set (LINK_LIBS ${LINK_LIBS} ${HDF5_LIBRARIES})
--      if (HDF5_BUILD_SHARED_LIBS)
--        add_definitions (-DH5_BUILT_AS_DYNAMIC_LIB)
--      else (HDF5_BUILD_SHARED_LIBS)
--        add_definitions (-DH5_BUILT_AS_STATIC_LIB)
--      endif (HDF5_BUILD_SHARED_LIBS)
--      if (BUILD_SHARED_LIBS AND WIN32)
--        set_property (TARGET h5dump PROPERTY IMPORTED_LOCATION "${HDF5_TOOLS_DIR}/h5dumpdll")
--      else (BUILD_SHARED_LIBS AND WIN32)
--        set_property (TARGET h5dump PROPERTY IMPORTED_LOCATION "${HDF5_TOOLS_DIR}/h5dump")
--      endif (BUILD_SHARED_LIBS AND WIN32)
--    else (NOT HDF5_static_C_FOUND AND NOT HDF5_shared_C_FOUND)
--      if (BUILD_SHARED_LIBS AND HDF5_shared_C_FOUND)
--        set (LINK_LIBS ${LINK_LIBS} ${HDF5_C_SHARED_LIBRARY})
--      else (HDF5_static_C_FOUND)
--        set (LINK_LIBS ${LINK_LIBS} ${HDF5_C_STATIC_LIBRARY})
--      endif (BUILD_SHARED_LIBS AND HDF5_shared_C_FOUND)
--      set_property (TARGET h5dump PROPERTY IMPORTED_LOCATION "${HDF5_TOOLS_DIR}/h5dump")
--    endif (NOT HDF5_static_C_FOUND AND NOT HDF5_shared_C_FOUND)
-+  find_package(HDF5 CONFIG REQUIRED)
-+  if(TARGET hdf5::hdf5-shared)
-+    set (LINK_LIBS ${LINK_LIBS} hdf5::hdf5-shared)
-+    #add_executable(h5dump ALIAS hdf5::h5dump-shared)
-+    set (HDF5_DUMP_EXECUTABLE $<TARGET_FILE:h5dump-shared>)
-+  else()
-+    set (LINK_LIBS ${LINK_LIBS} hdf5::hdf5-static)
-+    #add_executable(h5dump ALIAS hdf5::h5dump)
-     set (HDF5_DUMP_EXECUTABLE $<TARGET_FILE:h5dump>)
--
--    set (HDF5_HAVE_H5PUBCONF_H 1)
--    set (HDF5_HAVE_HDF5 1)
--    set (HDF5_HDF5_HEADER "h5pubconf.h")
--    set (HDF5_INCLUDE_DIR_GEN ${HDF5_INCLUDE_DIR})
--    message (STATUS "HDF5-${HDF5_VERSION_STRING} found: INC=${HDF5_INCLUDE_DIR} TOOLS=${HDF5_TOOLS_DIR}")
--  else (HDF5_FOUND)
--    find_package (HDF5) # Legacy find
--#Legacy find_package does not set HDF5_TOOLS_DIR, so we set it here
--    set(HDF5_TOOLS_DIR ${HDF5_LIBRARY_DIRS}/../bin)
--#Legacy find_package does not set HDF5_BUILD_SHARED_LIBS, so we set it here
--    if (CGNS_BUILD_SHARED AND EXISTS "${HDF5_LIBRARY_DIRS}/libhdf5${CMAKE_SHARED_LIBRARY_SUFFIX}")
--      set (HDF5_BUILD_SHARED_LIBS 1)
--      add_definitions (-DH5_BUILT_AS_DYNAMIC_LIB)
--    else ()
--      set (HDF5_BUILD_SHARED_LIBS 0)
--      add_definitions (-DH5_BUILT_AS_STATIC_LIB)
--    endif ()
--    set (LINK_LIBS ${LINK_LIBS} ${HDF5_LIBRARIES})
--
--    add_executable (h5dump IMPORTED)
--    set_property (TARGET h5dump PROPERTY IMPORTED_LOCATION "${HDF5_TOOLS_DIR}/h5dump")
--    set (HDF5_DUMP_EXECUTABLE $<TARGET_FILE:h5dump>)
--  endif (HDF5_FOUND)
--  set (HDF5_PACKAGE_NAME ${SEARCH_PACKAGE_NAME})
--
-+  endif()
-+  
-   if (HDF5_FOUND)
-     set (HDF5_HAVE_H5PUBCONF_H 1)
-     set (HDF5_HAVE_HDF5 1)
++  find_package(hdf5 CONFIG REQUIRED)
++  if (TARGET hdf5::hdf5-shared)
+     set (CG_HDF5_LINK_TYPE "shared")
+     set (CG_HDF5_LINK_TYPE_UPPER "SHARED")
+   else ()
 diff --git a/src/CMakeLists.txt b/src/CMakeLists.txt
-index 66b547ed1..4051f07d4 100644
+index f21eecb..fc3ad34 100644
 --- a/src/CMakeLists.txt
 +++ b/src/CMakeLists.txt
-@@ -12,13 +12,14 @@ include_directories(BEFORE ${CMAKE_CURRENT_SOURCE_DIR})
- if (CGNS_ENABLE_HDF5)
-   add_definitions(-DBUILD_HDF5)
-   if (WIN32)
--    if (HDF5_LIBRARY)
-+    add_definitions(-DWIN32)
-+    if (HDF5_BUILD_SHARED_LIBS)
-      # file(STRINGS ${HDF5_LIBRARY} HDF5isDLL REGEX "__imp__H5close")
-      # if (HDF5isDLL)
-         # this is only needed when using hdf5 dll libs
--        add_definitions(-DWIN32 -D_HDF5USEDLL_)
-+        add_definitions(-DH5_BUILT_AS_DYNAMIC_LIB)
-      # endif (HDF5isDLL)
--    endif (HDF5_LIBRARY)
-+    endif (HDF5_BUILD_SHARED_LIBS)
-   endif (WIN32)
-   if(HDF5_NEED_MPI AND MPI_INC)
-     include_directories(${MPI_INC})
+@@ -597,7 +597,7 @@ add_library(cgns_static STATIC ${cgns_FILES} $<$<BOOL:${CGNS_ENABLE_FORTRAN}>:$<
+ add_library(CGNS::cgns-static ALIAS cgns_static)
+ # Needed to work around a CMake > 3.8 bug on Windows with MSVS and Intel Fortran
+ set_property(TARGET cgns_static PROPERTY LINKER_LANGUAGE C)
+-target_link_libraries(cgns_static PRIVATE $<$<BOOL:${CGNS_ENABLE_HDF5}>:hdf5-${CG_HDF5_LINK_TYPE}>)
++target_link_libraries(cgns_static PRIVATE $<$<BOOL:${CGNS_ENABLE_HDF5}>:${HDF5_LIBRARY}>)
+ 
+ # Build a shared version of the library
+ if(CGNS_BUILD_SHARED)
+@@ -614,7 +614,7 @@ if(CGNS_BUILD_SHARED)
+     target_compile_definitions(cgns_shared INTERFACE -DUSE_DLL)
+   endif ()
+   if (CGNS_ENABLE_HDF5 AND HDF5_LIBRARY)
+-    target_link_libraries(cgns_shared PUBLIC hdf5-${CG_HDF5_LINK_TYPE} $<$<NOT:$<PLATFORM_ID:Windows>>:${CMAKE_DL_LIBS}>)
++    target_link_libraries(cgns_shared PUBLIC ${HDF5_LIBRARY} $<$<NOT:$<PLATFORM_ID:Windows>>:${CMAKE_DL_LIBS}>)
+     if(HDF5_NEED_ZLIB AND ZLIB_LIBRARY)
+       target_link_libraries(cgns_shared PUBLIC ${ZLIB_LIBRARY})
+     endif()
+diff --git a/src/cgns-config.cmake.in b/src/cgns-config.cmake.in
+index 12d9b17..23f2d99 100644
+--- a/src/cgns-config.cmake.in
++++ b/src/cgns-config.cmake.in
+@@ -1,5 +1,10 @@
+ @PACKAGE_INIT@
+ 
++if("@CGNS_ENABLE_HDF5@")
++    include(CMakeFindDependencyMacro)
++    find_dependency(hdf5 CONFIG)
++endif()
++
+ include("${CMAKE_CURRENT_LIST_DIR}/cgns-targets.cmake")
+ 
+ check_required_components(cgns)

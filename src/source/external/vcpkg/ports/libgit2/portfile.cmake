@@ -1,18 +1,32 @@
-# libgit2 uses winapi functions not available in WindowsStore
-vcpkg_fail_port_install(ON_TARGET "uwp")
-
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO libgit2/libgit2
-    REF 7f4fa178629d559c037a1f72f79f79af9c1ef8ce#version 1.1.0
-    SHA512 2fdbbb263fe71dc6d04b64c2967e7acff1a5b6102e62d69c9a7ea1b6777ab74a1625e798438ea239d8b489648a9335833f937f893f73a66e16c658eae453ab62
-    HEAD_REF master
+    REF "v${VERSION}"
+    SHA512 38547ace676b933a3146c2a00405fc6815063a7af923b9f2c09c536ec717be77d19c513b383939054913ce617d7917c100a5cbd3378d101fcdb5eacd1d14f687
+    HEAD_REF main
+    PATCHES
+        c-standard.diff # for 'inline' in system headers
+        cli-include-dirs.diff
+        dependencies.diff
+        mingw-winhttp.diff
+        fix-comment.diff
+        fix-include-path.diff
+)
+file(REMOVE_RECURSE
+    "${SOURCE_PATH}/cmake/FindPCRE.cmake"
+    "${SOURCE_PATH}/cmake/FindPCRE2.cmake"
+    "${SOURCE_PATH}/deps/chromium-zlib"
+    "${SOURCE_PATH}/deps/http-parser"
+    "${SOURCE_PATH}/deps/pcre"
+    "${SOURCE_PATH}/deps/winhttp"
+    "${SOURCE_PATH}/deps/zlib"
 )
 
 string(COMPARE EQUAL "${VCPKG_CRT_LINKAGE}" "static" STATIC_CRT)
 
 set(REGEX_BACKEND OFF)
 set(USE_HTTPS OFF)
+set(USE_SSH OFF)
 
 function(set_regex_backend VALUE)
     if(REGEX_BACKEND)
@@ -36,20 +50,16 @@ foreach(GIT2_FEATURE ${FEATURES})
     elseif(GIT2_FEATURE STREQUAL "openssl")
         set_tls_backend("OpenSSL")
     elseif(GIT2_FEATURE STREQUAL "winhttp")
-        if(NOT VCPKG_TARGET_IS_WINDOWS)
-            message(FATAL_ERROR "winhttp is not supported on non-Windows and uwp platforms")
-        endif()
         set_tls_backend("WinHTTP")
     elseif(GIT2_FEATURE STREQUAL "sectransp")
-        if(NOT VCPKG_TARGET_IS_OSX)
-            message(FATAL_ERROR "sectransp is not supported on non-Apple platforms")
-        endif()
         set_tls_backend("SecureTransport")
     elseif(GIT2_FEATURE STREQUAL "mbedtls")
-        if(VCPKG_TARGET_IS_WINDOWS)
-            message(FATAL_ERROR "mbedtls is not supported on Windows because a certificate file must be specified at compile time")
-        endif()
         set_tls_backend("mbedTLS")
+    elseif(GIT2_FEATURE STREQUAL "ssh")
+        set(USE_SSH ON)
+        message(STATUS "This version of `libgit2` uses the default (`libssh2`) backend. To use the newer backend which utilizes the `ssh` CLI from a local install of OpenSSH instead, create an overlay port of this with USE_SSH set to 'exec' and the `libssh2` dependency removed.")
+        message(STATUS "This recipe is at ${CMAKE_CURRENT_LIST_DIR}")
+        message(STATUS "See the overlay ports documentation at https://learn.microsoft.com/vcpkg/concepts/overlay-ports")
     endif()
 endforeach()
 
@@ -57,26 +67,48 @@ if(NOT REGEX_BACKEND)
     message(FATAL_ERROR "Must choose pcre or pcre2 regex backend")
 endif()
 
+vcpkg_find_acquire_program(PKGCONFIG)
+
 vcpkg_check_features(
     OUT_FEATURE_OPTIONS GIT2_FEATURES
     FEATURES
-        ssh USE_SSH
+        tools   BUILD_CLI
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
-        -DBUILD_CLAR=OFF
+        -DBUILD_TESTS=OFF
         -DUSE_HTTP_PARSER=system
         -DUSE_HTTPS=${USE_HTTPS}
         -DREGEX_BACKEND=${REGEX_BACKEND}
+        -DUSE_SSH=${USE_SSH}
         -DSTATIC_CRT=${STATIC_CRT}
+        "-DPKG_CONFIG_EXECUTABLE=${PKGCONFIG}"
+        -DCMAKE_DISABLE_FIND_PACKAGE_GSSAPI:BOOL=ON
         ${GIT2_FEATURES}
+    OPTIONS_DEBUG
+        -DBUILD_CLI=OFF
+    MAYBE_UNUSED_VARIABLES
+        STATIC_CRT
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
+vcpkg_fixup_pkgconfig()
+vcpkg_cmake_config_fixup(CONFIG_PATH "lib/cmake/${PORT}")
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
+if("tools" IN_LIST FEATURES)
+    vcpkg_copy_tools(TOOL_NAMES git2 AUTO_CLEAN)
+endif()
 
-file(INSTALL ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+
+set(file_list "${SOURCE_PATH}/COPYING")
+if(NOT VCPKG_TARGET_IS_WINDOWS)
+    file(WRITE "${CURRENT_BUILDTREES_DIR}/Notice for ntlmclient" [[
+Copyright (c) Edward Thomson.  All rights reserved.
+These source files are part of ntlmclient, distributed under the MIT license.
+]])
+    list(APPEND file_list "${CURRENT_BUILDTREES_DIR}/Notice for ntlmclient")
+endif()
+vcpkg_install_copyright(FILE_LIST ${file_list})

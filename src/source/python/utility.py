@@ -152,7 +152,7 @@ def check_instances(items, expected_type):
     try:
         items = tuple(items)
     except TypeError:
-        raise TypeError('Expected iterable (got %r)' % items)
+        raise TypeError('Expected list or iterable of %ss (got %r)' % (expected_type.__name__, items))
     for i in items:
         if not isinstance(i, expected_type):
             raise TypeError('Expected only instances of %s (got %r)' % (expected_type.__name__, i))
@@ -341,3 +341,4 @@ def DUp_to_dpp(string):
         ret += string
     return ret
 
+##########################################################################

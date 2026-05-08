@@ -1,42 +1,25 @@
-# the compilation fails on arm and uwp. Please check the related issue:
-# https://github.com/microsoft/vcpkg/pull/12560#issuecomment-668412073
-vcpkg_fail_port_install(ON_TARGET "uwp" and "arm")
-
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO coin-or/CppAD
-    REF 20200000.3
-    SHA512 4e980665a21c76cf355d1c5597c65fbfba7ac3e15c43a88ccfe3ba0267b85b4e9aa7c6e8a0ed7a728f8cf2c6e1424625d5cbcdd295a6c0a08b47b4b121572d13
+    REF "${VERSION}"
+    SHA512 a2e9b90246a78319d2a50347e03ee7a4e807e059200d834290981b5fc4ff99e1964c420f606a36b6cacb21d5b254f34edbafa660242b260a828e2259686f40cd
     HEAD_REF master
-    PATCHES
-        windows-fix.patch
-        pkgconfig-fix.patch
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
     DISABLE_PARALLEL_CONFIGURE
     OPTIONS
         -Dcppad_prefix=${CURRENT_PACKAGES_DIR}
     OPTIONS_RELEASE
         -Dcmake_install_libdirs=lib
-        -Dcppad_debug_which:STRING=debug_none
     OPTIONS_DEBUG
         -Dcmake_install_libdirs=debug/lib
 )
 
-vcpkg_install_cmake()
-
-# Install the pkgconfig file
-if(NOT DEFINED VCPKG_BUILD_TYPE OR VCPKG_BUILD_TYPE STREQUAL "release")
-    file(COPY ${CURRENT_BUILDTREES_DIR}/${TARGET_TRIPLET}-rel/pkgconfig/cppad.pc DESTINATION ${CURRENT_PACKAGES_DIR}/lib/pkgconfig)
-endif()
-if(NOT DEFINED VCPKG_BUILD_TYPE OR VCPKG_BUILD_TYPE STREQUAL "debug")
-    file(COPY ${CURRENT_BUILDTREES_DIR}/${TARGET_TRIPLET}-dbg/pkgconfig/cppad.pc DESTINATION ${CURRENT_PACKAGES_DIR}/debug/lib/pkgconfig)
-endif()
-
+vcpkg_cmake_install()
 vcpkg_fixup_pkgconfig()
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/share/pkgconfig")
 
 # Add the copyright
-file(INSTALL ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/COPYING")

@@ -9,6 +9,7 @@
 #include "TypeSupport.h"
 #include "Macro.h"
 
+#include <cstdint>
 #include <iterator>
 #include <complex>
 #include <string_view>
@@ -78,7 +79,7 @@ template <> struct TypeCheck<void> {
 };
 
 template <class ...> struct matches_signature_t : std::false_type {};
-template <class F, class ...Args> struct matches_signature_t<F, std::result_of_t<F(Args...)>, Args...> : std::true_type {};
+template <class F, class ...Args> struct matches_signature_t<F, std::invoke_result_t<F, Args...>, Args...> : std::true_type {};
 template <class ...Ts> static constexpr bool matches_signature = matches_signature_t<Ts...>::value;
 
 template <class T, class=void> struct is_cref_wrapper_t : std::false_type {};

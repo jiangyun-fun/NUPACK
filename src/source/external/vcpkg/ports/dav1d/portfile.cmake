@@ -1,18 +1,22 @@
-vcpkg_fail_port_install(ON_ARCH "arm" "x86" ON_TARGET "uwp")
-
 vcpkg_from_gitlab(
     GITLAB_URL https://code.videolan.org
     OUT_SOURCE_PATH SOURCE_PATH
     REPO videolan/dav1d
-    REF 0.8.1
-    SHA512 dd40b82b65e4be37a27ab11e7116f7a244b0da4469915ead3922ac31724fb6da3910a78629a32a669031fe08d4323ab135174afb7462f6ea4adf96c111841c1c
-    PATCHES
-        "patch_underscore_prefix.patch"
+    REF "${VERSION}"
+    SHA512 8a9c8079ef8dd32bec2df626db68829ac2210c7754e72e18c74afcff5fa3d4aecfd55c54078c57669a86949b2ce7be803e75f1b8279959e0427661bb7302052d
 )
 
-vcpkg_find_acquire_program(NASM)
-get_filename_component(NASM_EXE_PATH ${NASM} DIRECTORY)
-vcpkg_add_to_path(${NASM_EXE_PATH})
+if (VCPKG_TARGET_ARCHITECTURE STREQUAL "x86" OR VCPKG_TARGET_ARCHITECTURE STREQUAL "x64")
+    vcpkg_find_acquire_program(NASM)
+    get_filename_component(NASM_EXE_PATH ${NASM} DIRECTORY)
+    vcpkg_add_to_path(${NASM_EXE_PATH})
+elseif (VCPKG_TARGET_IS_WINDOWS)
+    vcpkg_find_acquire_program(GASPREPROCESSOR)
+    foreach(GAS_PATH ${GASPREPROCESSOR})
+        get_filename_component(GAS_ITEM_PATH ${GAS_PATH} DIRECTORY)
+        vcpkg_add_to_path(${GAS_ITEM_PATH})
+    endforeach(GAS_PATH)
+endif()
 
 set(LIBRARY_TYPE ${VCPKG_LIBRARY_LINKAGE})
 if (LIBRARY_TYPE STREQUAL "dynamic")
@@ -20,7 +24,7 @@ if (LIBRARY_TYPE STREQUAL "dynamic")
 endif(LIBRARY_TYPE STREQUAL "dynamic")
 
 vcpkg_configure_meson(
-    SOURCE_PATH ${SOURCE_PATH}
+    SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
         --default-library=${LIBRARY_TYPE}
         -Denable_tests=false
@@ -29,5 +33,7 @@ vcpkg_configure_meson(
 
 vcpkg_install_meson()
 vcpkg_copy_pdbs()
+vcpkg_fixup_pkgconfig()
 
-configure_file("${SOURCE_PATH}/COPYING" "${CURRENT_PACKAGES_DIR}/share/${PORT}/copyright" COPYONLY)
+file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/usage" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/COPYING")

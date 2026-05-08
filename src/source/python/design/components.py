@@ -31,106 +31,16 @@ class ModelSettings:
     def __init__(self, material='RNA', ensemble='stacking', temperature=None, sodium=1.0, magnesium=0.0, _fun_=None):
         """create model settings"""
         if temperature == None:
-            temperature = constants.DefaultTemperature
+            temperature = constants.default_temperature
         _fun_(self, material, ensemble, temperature, sodium, magnesium)
 
-@forward
-class Domain:
-    """A string of nucleotides"""
-    name: str
-    allowed_bases: str
-
-    def __init__(self, name, sequence):
-        pass
-
-@forward
-class Strand:
-    """A concatenated string of domains with no strand breaks"""
-    name: str
-    # domain_names: 'std.Vector' # Tuple[str, ...]
-
-    def __init__(self, name, domain_names):
-        pass
-
-@forward
-class Complex:
-    """An ordered list of strands, possibly with a target structure"""
-    name: str
-    # strands: 'std.Vector' # Tuple[str, ...]
-    # structure: 'Structure'
-
-@forward
-class Tube:
-    """A specification for a test tube with complexes at a given target concentration"""
-    name: str
-    # targets: 'std.Vector' # Tuple[Tuple[Tuple[str, ...], float], ...]
-
-
-# Constraints
-@forward
-class DualList:
-    """Holds two lists of domains that are to be constrained"""
-    # left: 'std.Vector' # Tuple[str, ...]
-    # right: 'std.Vector' # Tuple[str, ...]
-
-
-@forward
-class Pattern:
-    """Pattern constraint specification"""
-    name: str
-    pattern: str
-
-@forward
-class Diversity:
-    """Diversity constraint specification"""
-    name: str
-    word_length: int
-    min_nucleotide_types: int
-
-@forward
-class Word:
-    """Word constraint, i.e. a library or window constraint, specification"""
-    # domains: 'std.Vector' # Tuple[str, ...]
-    # comparisons: 'std.Vector' # Tuple[Tuple[str, ...], ...]
-
-@forward
-class Similarity:
-    """Similarity constraint specification"""
-    name: str
-    reference: str
-    range: Tuple[float, float]
-
-@forward
-class Constraints:
-    """Collection of all constraint specifications"""
-    # complementarity: 'std.Vector' # Tuple['DualList', ...]
-    # match: 'std.Vector' # Tuple['DualList', ...]
-    # pattern: 'std.Vector' # Tuple['Pattern', ...]
-    # word: 'std.Vector' # Tuple['Word', ...]
-    # similarity: 'std.Vector' # Tuple['Similarity', ...]
-
-@forward
-class Parameters:
-    """Parameters"""
-    f_stop: float
-    f_sparse: float
-    f_passive: float
-    H_split: int
-    N_split: int
-    f_split: float
-    f_stringent: float
-    dG_clamp: float
-    M_bad: int
-    M_reseed: int
-    M_reopt: int
-    f_redecomp: float
-    f_refocus: float
-    rng_seed: int
-    log: str = ''
-    decomposition_log: str = ''
-    thermo_log: str = ''
 
 class StopCondition:
+    '''Condition class which says:
+    - Emit a checkpoint if done = True for a design
+    - Interrupt the design if self.cancel() is called
+    - Otherwise do nothing.
+    '''
     def __init__(self):
         self.stop = False
 

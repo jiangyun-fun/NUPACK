@@ -1,18 +1,28 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO stiffstream/restinio
-    REF 0052518f5692f8f051031e06d933b726191be97e # v.0.6.13
-    SHA512 e7474aa1cef4145fe2f02c52cf80fdaf6724da45a4f3d0f1f56fc188ac50ff29a3ac72ea0e4402dc7ad378d0b2acfcea30cf8a57d218c3f5eb55d3f0d83dad29
+    REF "v.${VERSION}"
+    SHA512 457e9eaeb310f731ef360432df6952c3b5a93ae82fef8cc4be62efa02d0cb75e2dda389ab131ad8fe1706ea097c0436f1ecc36feeffb1ed3b77c1a0afb629df7
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}/vcpkg
-    PREFER_NINJA
+set(VCPKG_BUILD_TYPE release) # header-only
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}/dev"
+    OPTIONS
+        -DRESTINIO_INSTALL=ON
+        -DRESTINIO_TEST=OFF
+        -DRESTINIO_SAMPLE=OFF
+        -DRESTINIO_BENCHMARK=OFF
+        -DRESTINIO_WITH_SOBJECTIZER=OFF
+        -DRESTINIO_ASIO_SOURCE=standalone
+        -DRESTINIO_DEP_STANDALONE_ASIO=find
+        -DRESTINIO_DEP_LLHTTP=find
+        -DRESTINIO_DEP_FMT=find
+        -DRESTINIO_DEP_EXPECTED_LITE=find
 )
+vcpkg_cmake_install()
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/restinio)
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/lib")
 
-vcpkg_install_cmake()
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/restinio)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/lib ${CURRENT_PACKAGES_DIR}/debug)
-# Handle copyright
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)

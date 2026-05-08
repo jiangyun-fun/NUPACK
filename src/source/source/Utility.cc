@@ -12,12 +12,12 @@ namespace nupack::thermo {
 
 // Return unique secondary structures with their structure energy and lowest stack energy
 // Free energies are given wrt indistinguishable strands in the current API.
-std::map<Structure, std::pair<real, real>> unique_subopt(vec<std::pair<PairList, real>> v, Complex const &c, Model<float> const &model) {
-    std::map<Structure, std::pair<real, real>> out;
-    auto const nicks = c.nicks();
+std::map<Structure, same_pair<real>> unique_subopt(vec<std::pair<PairList, real>> v, Complex const &c, Model<float> const &model) {
+    std::map<Structure, same_pair<real>> out;
+    auto const nicks = complex_nicks(c);
 
-    if (model.ensemble == Ensemble::stacking) {
-        auto const sys = std::make_shared<System const>(c.strands());
+    if (has_subensemble(model.ensemble)) {
+        System sys(c);
         for (auto &p : v) {
             auto [it, put] = out.try_emplace(Structure(std::move(p.first), nicks));
             it->second.first = structure_energy(sys, it->first, model);

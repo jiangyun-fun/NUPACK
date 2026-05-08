@@ -4,7 +4,7 @@
 #include "Logging.h"
 #include <chrono>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 vec<real> ord_lin_lsq(vec<real> const &x, vec<real> const &y);
 
@@ -22,12 +22,12 @@ struct Timer {
     real stop();
 
     auto save_repr() const {
-        return std::pair<real, real>(
+        return same_pair<real>(
                 duration(_start.time_since_epoch()).count(),
                 duration(_stop.time_since_epoch()).count());
     }
 
-    void load_repr(std::pair<real, real> x) {
+    void load_repr(same_pair<real> x) {
         _start = time(std::chrono::duration_cast<clock::duration>(std::chrono::duration<real>(x.first)));
         _stop = time(std::chrono::duration_cast<clock::duration>(std::chrono::duration<real>(x.second)));
     }
@@ -43,10 +43,11 @@ struct DesignStats {
     real design_time {0};
     real analysis_time {0};
     EnsemblePartition final_Psi;
+    std::size_t seed = 0;
 
-    NUPACK_REFLECT(DesignStats, num_leaf_evaluations, num_reseeds, num_redecompositions, offtargets_added_per_refocus, design_time, analysis_time, final_Psi);
+    NUPACK_REFLECT(DesignStats, num_leaf_evaluations, num_reseeds, num_redecompositions, offtargets_added_per_refocus, design_time, analysis_time, final_Psi, seed);
 };
 
 
 
-}}
+}

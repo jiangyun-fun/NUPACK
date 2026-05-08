@@ -8,6 +8,7 @@
 #pragma once
 #include "Traits.h"
 #include "Extents.h"
+#include "Constants.h"
 
 /******************************************************************************************/
 
@@ -58,7 +59,10 @@ namespace detail {
     void call_each(indices_t<I...>, T &&t, Ts &&...ts) {NUPACK_UNPACK(at<I>(fw<T>(t))(fw<Ts>(ts)...));}
 
     template <class Out, class T, std::size_t ...Is>
-    Out unpack_as(indices_t<Is...>, T &&t) {return Out{static_cast<value_type_of<Out>>(at<Is>(fw<T>(t)))...};}
+    Out unpack_as(indices_t<Is...>, T &&t) {
+        if constexpr(std::is_constructible_v<Out, decltype(at<Is>(fw<T>(t)))...>) return Out(at<Is>(fw<T>(t))...);
+        else return Out{static_cast<std::tuple_element_t<Is, Out>>(at<Is>(fw<T>(t)))...};
+    }
 
     template <class T, std::size_t ...Is>
     auto filled_tuple(indices_t<Is...>, T &&t) {return std::tuple<sink_type<T, decltype(Is)>...>{sink<decltype(Is)>(t)...};}
@@ -107,6 +111,20 @@ constexpr auto tie_each(T &&t) {return std::forward_as_tuple(at<Is>(fw<T>(t))...
 template <class F, class T>
 auto unpack(T &&t, F &&f) {return detail::unpack(indices_in<T>(), fw<F>(f), fw<T>(t));}
 
+template <bool Copy=true, class F, NUPACK_IF(std::is_rvalue_reference_v<F &&> || Copy)>
+auto unpacked(F &&f) {
+    return [f=fw<F>(f)] (auto &&t) -> decltype(detail::unpack(indices_in<decltype(t)>(), f, fw<decltype(t)>(t))) {
+        return detail::unpack(indices_in<decltype(t)>(), f, fw<decltype(t)>(t));
+    };
+}
+
+template <bool Copy=true, class F, NUPACK_IF(!std::is_rvalue_reference_v<F &&> && !Copy)>
+auto unpacked(F &&f) {
+    return [&f] (auto &&t) -> decltype(detail::unpack(indices_in<decltype(t)>(), fw<F>(f), fw<decltype(t)>(t))) {
+        return detail::unpack(indices_in<decltype(t)>(), fw<F>(f), fw<decltype(t)>(t));
+    };
+}
+
 /******************************************************************************************/
 
 // Make a tuple of lvalue references to an original tuple
@@ -134,7 +152,7 @@ static constexpr auto tuple_size = std::tuple_size<decay<T>>::value;
 /// Type of element at a given position in a tuple
 template <class T, std::size_t I> using tuple_type = std::tuple_element_t<I, T>;
 /// length overload for compile-time size things
-template <class T> struct extents::length<T, void_if<(is_tuple<T>) || (is_pair<T>)>> {
+template <class T> struct len_functor_t<T, void_if<(is_tuple<T>) || (is_pair<T>)>> {
     constexpr auto operator()(T const &) const {return tuple_size<T>;}
 };
 

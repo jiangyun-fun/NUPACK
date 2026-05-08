@@ -1,47 +1,51 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO OSGeo/libgeotiff
-    REF  8b1a8f52bc909f86e04ceadd699db102208074a2 #v1.6.0
-    SHA512 41715d6a416307a93b2f95874c00ed27c3a0450d70311e77ed45f7ff477bd85f4a69b549bde01dfb9412a62a482467222fc8ed398478e2829e4d112012aab852
+    REF  ${VERSION}
+    SHA512 03468e8eeaf97d82798bf341cf2e27753eb47af985fb08fc6176be799bd0e1e879c6d1701577f7568f269cbef0bb0a20ae460bb943f847daf49aa54601441683
     HEAD_REF master
     PATCHES
         cmakelists.patch
-        geotiff-config.patch
-        fix-proj4.patch
-        fix-staticbuild.patch
-        fix-config-version.patch
 )
 
-set(SOURCE_PATH ${SOURCE_PATH}/libgeotiff)
+vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
+    FEATURES
+       tools    WITH_JPEG
+       tools    WITH_UTILITIES 
+)
 
-# Delete FindPROJ4.cmake
-file(REMOVE ${SOURCE_PATH}/cmake/FindPROJ4.cmake)
-
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}/libgeotiff"
     OPTIONS
         -DWITH_TIFF=1
-        -DWITH_PROJ4=1
-        -DWITH_ZLIB=1
-        -DWITH_JPEG=1
-        -DWITH_UTILITIES=1
+        -DHAVE_TIFFOPEN=1
+        -DHAVE_TIFFMERGEFIELDINFO=1
+        -DCMAKE_MACOSX_BUNDLE=0
+        -DCMAKE_INSTALL_MANDIR=share/unused
+        -DCMAKE_INSTALL_DOCDIR=share/unused
+        ${FEATURE_OPTIONS}
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
 
-vcpkg_copy_tools(TOOL_NAMES applygeo geotifcp listgeo makegeo AUTO_CLEAN)
-
-vcpkg_copy_pdbs()
-vcpkg_fixup_cmake_targets(CONFIG_PATH share/geotiff TARGET_PATH share/geotiff)
-
-if(VCPKG_LIBRARY_LINKAGE STREQUAL "static")
-    vcpkg_replace_string(${CURRENT_PACKAGES_DIR}/share/geotiff/geotiff-config.cmake "if (GeoTIFF_USE_STATIC_LIBS)" "if (1)")
-    file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/bin ${CURRENT_PACKAGES_DIR}/bin)
+if(WITH_UTILITIES)
+    vcpkg_copy_tools(TOOL_NAMES applygeo geotifcp listgeo makegeo AUTO_CLEAN)
 endif()
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include ${CURRENT_PACKAGES_DIR}/debug/doc ${CURRENT_PACKAGES_DIR}/debug/share)
+vcpkg_copy_pdbs()
+vcpkg_cmake_config_fixup(PACKAGE_NAME geotiff)
+vcpkg_fixup_pkgconfig()
 
-file(INSTALL ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+if(VCPKG_LIBRARY_LINKAGE STREQUAL "static")
+    file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/bin" "${CURRENT_PACKAGES_DIR}/bin")
+endif()
 
-file(RENAME ${CURRENT_PACKAGES_DIR}/doc ${CURRENT_PACKAGES_DIR}/share/${PORT}/doc)
+file(REMOVE_RECURSE
+    "${CURRENT_PACKAGES_DIR}/debug/include"
+    "${CURRENT_PACKAGES_DIR}/debug/share"
+    "${CURRENT_PACKAGES_DIR}/share/unused"
+)
+
+file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/usage" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")
+
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/libgeotiff/LICENSE")

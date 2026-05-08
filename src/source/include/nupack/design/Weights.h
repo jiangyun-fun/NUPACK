@@ -4,17 +4,14 @@
 #include "../standard/Vec.h"
 #include "../iteration/Range.h"
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 struct Weight {
-    Optional<string> tube;
-    Optional<string> complex;
-    Optional<string> strand;
-    Optional<string> domain;
+    string tube;
+    string complex;
+    string strand;
+    string domain;
     real weight;
-
-    Weight() = default;
-    Weight(Optional<string>, Optional<string>, Optional<string>, Optional<string>, real);
 
     NUPACK_REFLECT(Weight, tube, complex, strand, domain, weight);
 };
@@ -67,4 +64,4 @@ struct Weights {
     NUPACK_REFLECT(Weights, specifications, per_complex, per_tube, reversed_complexes, objective_weights);
 };
 
-}}
+}

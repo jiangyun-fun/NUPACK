@@ -92,9 +92,10 @@ struct Response<T, Q, std::void_t<decltype(response(std::declval<TypeIndex>(), s
 
     template <class T2>
     bool operator()(Variable &out, TypeIndex const &idx, T2 &&t) const {
-        DUMP("ADL Response: ", typeid(T), idx);
+        DUMP("ADL Response: ", typeid(T), " to ", idx);
+        if (implicit_response(out, idx, Q, static_cast<T2 &&>(t))) return true;
         out = response(idx, static_cast<T2 &&>(t));
-        return out || implicit_response(out, idx, Q, static_cast<T2 &&>(t));
+        return bool(out);
     }
 };
 

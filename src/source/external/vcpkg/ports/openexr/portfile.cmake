@@ -1,59 +1,58 @@
-if (VCPKG_CMAKE_SYSTEM_NAME STREQUAL "WindowsStore")
-  message(FATAL_ERROR "UWP build not supported")
-endif()
-
 vcpkg_from_github(
-  OUT_SOURCE_PATH SOURCE_PATH
-  REPO openexr/openexr
-  REF ed64d5467dee9763f28baf300f7699e6288b9f5f
-  SHA512 549d37ed1ef4d1ff7e732d583f7213ee15c7f92625aea9fd65345e4c5b854902c02e5940d0692b1af5ae0a02abf46aaefea2662db2389d1b2fb4264a373baac2
-  HEAD_REF master
-  PATCHES
-    remove_find_package_macro.patch
-    fixup_cmake_exports_path.patch
-    remove_symlinks.patch
+    OUT_SOURCE_PATH SOURCE_PATH
+    REPO AcademySoftwareFoundation/openexr
+    REF "v${VERSION}"
+    SHA512 0c43337fda2979b328202488a43711afb5d680781c933aa0d74970a3dcda1135fbd01228cb10e81e4628c0d19da2d3e5b781e147d609cdc8a796d2a51a90932f
+    HEAD_REF main
 )
 
-vcpkg_configure_cmake(SOURCE_PATH ${SOURCE_PATH}
-  PREFER_NINJA
-  OPTIONS
-    -DCMAKE_DEBUG_POSTFIX=_d
-    -DPYILMBASE_ENABLE=FALSE
+vcpkg_check_features(OUT_FEATURE_OPTIONS OPTIONS
+    FEATURES
+        tools   OPENEXR_BUILD_TOOLS
+        tools   OPENEXR_INSTALL_TOOLS
 )
-
-vcpkg_install_cmake()
-
-vcpkg_fixup_cmake_targets(CONFIG_PATH share/ilmbase TARGET_PATH share/ilmbase)
-vcpkg_fixup_cmake_targets()
-
-file(REMOVE ${CURRENT_PACKAGES_DIR}/debug/bin/exrenvmap${VCPKG_HOST_EXECUTABLE_SUFFIX})
-file(REMOVE ${CURRENT_PACKAGES_DIR}/debug/bin/exrheader${VCPKG_HOST_EXECUTABLE_SUFFIX})
-file(REMOVE ${CURRENT_PACKAGES_DIR}/debug/bin/exrmakepreview${VCPKG_HOST_EXECUTABLE_SUFFIX})
-file(REMOVE ${CURRENT_PACKAGES_DIR}/debug/bin/exrmaketiled${VCPKG_HOST_EXECUTABLE_SUFFIX})
-file(REMOVE ${CURRENT_PACKAGES_DIR}/debug/bin/exrmultipart${VCPKG_HOST_EXECUTABLE_SUFFIX})
-file(REMOVE ${CURRENT_PACKAGES_DIR}/debug/bin/exrmultiview${VCPKG_HOST_EXECUTABLE_SUFFIX})
-file(REMOVE ${CURRENT_PACKAGES_DIR}/debug/bin/exrstdattr${VCPKG_HOST_EXECUTABLE_SUFFIX})
-file(REMOVE ${CURRENT_PACKAGES_DIR}/debug/bin/exr2aces${VCPKG_HOST_EXECUTABLE_SUFFIX})
-
-file(MAKE_DIRECTORY ${CURRENT_PACKAGES_DIR}/tools/openexr/)
-file(RENAME ${CURRENT_PACKAGES_DIR}/bin/exrenvmap${VCPKG_HOST_EXECUTABLE_SUFFIX} ${CURRENT_PACKAGES_DIR}/tools/openexr/exrenvmap${VCPKG_HOST_EXECUTABLE_SUFFIX})
-file(RENAME ${CURRENT_PACKAGES_DIR}/bin/exrheader${VCPKG_HOST_EXECUTABLE_SUFFIX} ${CURRENT_PACKAGES_DIR}/tools/openexr/exrheader${VCPKG_HOST_EXECUTABLE_SUFFIX})
-file(RENAME ${CURRENT_PACKAGES_DIR}/bin/exrmakepreview${VCPKG_HOST_EXECUTABLE_SUFFIX} ${CURRENT_PACKAGES_DIR}/tools/openexr/exrmakepreview${VCPKG_HOST_EXECUTABLE_SUFFIX})
-file(RENAME ${CURRENT_PACKAGES_DIR}/bin/exrmaketiled${VCPKG_HOST_EXECUTABLE_SUFFIX} ${CURRENT_PACKAGES_DIR}/tools/openexr/exrmaketiled${VCPKG_HOST_EXECUTABLE_SUFFIX})
-file(RENAME ${CURRENT_PACKAGES_DIR}/bin/exrmultipart${VCPKG_HOST_EXECUTABLE_SUFFIX} ${CURRENT_PACKAGES_DIR}/tools/openexr/exrmultipart${VCPKG_HOST_EXECUTABLE_SUFFIX})
-file(RENAME ${CURRENT_PACKAGES_DIR}/bin/exrmultiview${VCPKG_HOST_EXECUTABLE_SUFFIX} ${CURRENT_PACKAGES_DIR}/tools/openexr/exrmultiview${VCPKG_HOST_EXECUTABLE_SUFFIX})
-file(RENAME ${CURRENT_PACKAGES_DIR}/bin/exrstdattr${VCPKG_HOST_EXECUTABLE_SUFFIX} ${CURRENT_PACKAGES_DIR}/tools/openexr/exrstdattr${VCPKG_HOST_EXECUTABLE_SUFFIX})
-file(RENAME ${CURRENT_PACKAGES_DIR}/bin/exr2aces${VCPKG_HOST_EXECUTABLE_SUFFIX} ${CURRENT_PACKAGES_DIR}/tools/openexr/exr2aces${VCPKG_HOST_EXECUTABLE_SUFFIX})
-vcpkg_copy_tool_dependencies(${CURRENT_PACKAGES_DIR}/tools/openexr)
-
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        ${OPTIONS}
+        -DBUILD_TESTING=OFF
+        -DBUILD_WEBSITE=OFF
+        -DCMAKE_REQUIRE_FIND_PACKAGE_libdeflate=ON
+        -DOPENEXR_BUILD_EXAMPLES=OFF
+        -DOPENEXR_INSTALL_PKG_CONFIG=ON
+    OPTIONS_DEBUG
+        -DOPENEXR_BUILD_TOOLS=OFF
+        -DOPENEXR_INSTALL_TOOLS=OFF
+)
+vcpkg_cmake_install()
 vcpkg_copy_pdbs()
 
-if (VCPKG_CMAKE_SYSTEM_NAME OR VCPKG_LIBRARY_LINKAGE STREQUAL static)
-  file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/bin ${CURRENT_PACKAGES_DIR}/debug/bin)
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/OpenEXR)
+
+vcpkg_fixup_pkgconfig()
+
+if(OPENEXR_INSTALL_TOOLS)
+    vcpkg_copy_tools(
+        TOOL_NAMES
+            exr2aces
+            # not installed: exrcheck
+            exrenvmap
+            exrheader
+            exrinfo
+            exrmakepreview
+            exrmaketiled
+            exrmanifest
+            exrmultipart
+            exrmultiview
+            exrstdattr
+        AUTO_CLEAN
+    )
 endif()
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/share)
+file(REMOVE_RECURSE
+    "${CURRENT_PACKAGES_DIR}/debug/include"
+    "${CURRENT_PACKAGES_DIR}/debug/share"
+)
 
-file(INSTALL ${CMAKE_CURRENT_LIST_DIR}/vcpkg-cmake-wrapper.cmake DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT})
-file(INSTALL ${SOURCE_PATH}/LICENSE.md DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/usage" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE.md")

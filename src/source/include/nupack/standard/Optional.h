@@ -29,7 +29,7 @@ decltype(auto) value_of(T &&t) {return *(fw<T>(t));}
 template <class T, NUPACK_IF(is_optional<decay<T>> && DebugBounds)>
 decltype(auto) value_of(T &&t) {
    try {return fw<T>(t).value();}
-   catch (...) {NUPACK_BUG("Empty optional was accessed", type_name(t));}
+   catch (...) {NUPACK_ERROR("Empty optional was accessed", type_name(t));}
 }
 
 /******************************************************************************************/

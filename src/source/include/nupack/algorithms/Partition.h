@@ -9,14 +9,14 @@ vec<small_vec<bool>> combinations(uint n);
 
 /******************************************************************************************/
 
-void recurse_subsets(small_vec<std::uint32_t> &p, std::size_t n, std::function<void()> const &f);
+void recurse_subsets(vec<std::uint32_t> &p, std::size_t n, std::function<void()> const &f);
 
 // For n=3, yield [], [0], [1], [2], [01], [02], [12], [012],
 // The first is always [] and each subset is sorted. Total # shoud be 2^n.
 template <class F=NoOp>
 std::size_t subsets(std::size_t n, F &&f={}) {
     std::size_t count = 0;
-    small_vec<std::uint32_t> p;
+    vec<std::uint32_t> p;
     p.reserve(n);
     recurse_subsets(p, n, [&f, &count, &p] {
         f(p);
@@ -27,13 +27,13 @@ std::size_t subsets(std::size_t n, F &&f={}) {
 
 /******************************************************************************************/
 
-void recurse_partitions(small_vec<small_vec<std::uint32_t>> &p, bool subset, std::size_t n, std::function<void()> const &f);
+void recurse_partitions(vec<vec<std::uint32_t>> &p, bool subset, std::size_t n, std::function<void()> const &f);
 
 // Call the callback f with all partitioning of the indices [0, n). Total # should be Bell number.
 template <class F=NoOp>
 std::size_t partitions(bool subset, std::size_t n, F &&f={}) {
     std::size_t count = 0;
-    small_vec<small_vec<std::uint32_t>> p;
+    vec<vec<std::uint32_t>> p;
     p.reserve(n);
     recurse_partitions(p, subset, n, [&f, &count, &p] {
         f(p);
@@ -45,8 +45,8 @@ std::size_t partitions(bool subset, std::size_t n, F &&f={}) {
 /******************************************************************************************/
 
 struct PairPartition {
-    small_vec<std::array<std::uint32_t, 2>> pairs;
-    small_vec<std::uint32_t> unpaired;
+    vec<std::array<std::uint32_t, 2>> pairs;
+    vec<std::uint32_t> unpaired;
 
     PairPartition(std::size_t n) {
         pairs.reserve(n / 2);
@@ -69,9 +69,9 @@ std::size_t pairings(std::uint32_t n, F &&f={}) {
 /******************************************************************************************/
 
 struct BipartitePartition {
-    small_vec<std::array<std::uint32_t, 2>> pairs;
-    small_vec<std::uint32_t> first_unpaired;
-    small_vec<std::uint32_t> second_unpaired;
+    vec<std::array<std::uint32_t, 2>> pairs;
+    vec<std::uint32_t> first_unpaired;
+    vec<std::uint32_t> second_unpaired;
 
     BipartitePartition(std::uint32_t m, std::uint32_t n) : first_unpaired(range(m)) {
         pairs.reserve(std::min(m, n));
@@ -97,7 +97,7 @@ std::size_t bipartite(std::uint32_t m, std::uint32_t n, F &&f={}) {
 
 // template <std::size_t N>
 // struct NpartitePartition {
-//     std::tuple<std::array<small_vec<Link<#>>, #>> links; // would be e.g. 3 singles, 3 doubles, 1 triple for N=3
+//     std::tuple<std::array<vec<Link<#>>, #>> links; // would be e.g. 3 singles, 3 doubles, 1 triple for N=3
 
 //     NpartitePartition(std::array<std::uint32_t, N> n) {
 //         for (auto i : range(N)) std::get<0>(links)[i] = range(n[i]);

@@ -27,17 +27,21 @@ set(CMAKE_TOOLCHAIN_FILE ${CMAKE_CURRENT_SOURCE_DIR}/external/vcpkg/scripts/buil
 
 ################################################################################
 
+set(CMAKE_C_COMPILER_NAMES gcc clang icc cc)
+set(CMAKE_CXX_COMPILER_NAMES clang gcc icc cc)
+
+enable_language(C)
 enable_language(CXX)
 set(CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake/")
 include(Contents)
 include(Options)
 
 ################################################################################
-project(NUPACK VERSION 4.0.0.23 LANGUAGES CXX C)
+project(NUPACK VERSION 4.0.2.0 LANGUAGES CXX C)
 ################################################################################
 
 if("${CMAKE_BUILD_TYPE}" STREQUAL "")
-    set(CMAKE_BUILD_TYPE RelWithDebInfo)
+    set(CMAKE_BUILD_TYPE Release)
 endif()
 
 message("-- CMake build type is \"${CMAKE_BUILD_TYPE}\"")
@@ -51,20 +55,21 @@ set(CMAKE_SKIP_INSTALL_ALL_DEPENDENCY true)
 # This function preferentially symlinks a file and records the output in ${link_outputs}
 # If on Windows, a copy is done instead of symlinking
 function(link_file in out)
-    get_filename_component(dir "${CMAKE_BINARY_DIR}/${out}" DIRECTORY)
+    get_filename_component(dir "${out}" DIRECTORY)
     if(WIN32)
         set(link_file_flag "copy")
     else()
         set(link_file_flag "create_symlink")
     endif()
-    add_custom_command(OUTPUT "${CMAKE_BINARY_DIR}/${out}"
+    add_custom_command(OUTPUT "${out}"
         COMMAND ${CMAKE_COMMAND} -E make_directory ${dir}
-        COMMAND ${CMAKE_COMMAND} -E ${link_file_flag} "${SOURCE_DIR}/${in}" "${CMAKE_BINARY_DIR}/${out}"
-        DEPENDS "${SOURCE_DIR}/${in}"
+        COMMAND ${CMAKE_COMMAND} -E ${link_file_flag} "${in}" "${out}"
+        DEPENDS "${in}"
     )
-    set(link_outputs ${link_outputs} "${CMAKE_BINARY_DIR}/${out}" PARENT_SCOPE)
+    set(link_outputs ${link_outputs} "${out}" PARENT_SCOPE)
 endfunction(link_file)
 
+add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/solver)
 add_subdirectory(${CMAKE_CURRENT_SOURCE_DIR}/external/rebind EXCLUDE_FROM_ALL)
 
 ################################################################################

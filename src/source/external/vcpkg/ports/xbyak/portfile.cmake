@@ -1,25 +1,20 @@
-vcpkg_fail_port_install(ON_ARCH "arm" ON_TARGET "uwp")
-
+string(REGEX REPLACE "^([0-9]+)[.]([1-9])\$" "\\1.0\\2" VERSION_STR "${VERSION}")
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO herumi/xbyak
-    REF 77ffe717376d194f1e5cc910bbd755d99bbba94e	# 5.991 + cmake targets
-    SHA512 4e1ffa98dc63444aebf0a6e7a4ea57a9040cbf261f3a6fa43d23f0361cece71f1f4b597e95b6c85efbd4668e421081730b04ee924450ea0b0114923c36fc9c74
+    REF "v${VERSION_STR}"
+    SHA512 d8bcf248b4506f09ee70431f6c38d0d2eb7c3dfa110cbe700e7ae689e0a640f77ec337aeafda93d0f4fd7e9139a8e46dbf1cb99dd4a576667d71b05992a618b8
     HEAD_REF master
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
-)
+vcpkg_cmake_configure(SOURCE_PATH "${SOURCE_PATH}")
+vcpkg_cmake_install()
 
-vcpkg_install_cmake()
-
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/${PORT})
+vcpkg_cmake_config_fixup(CONFIG_PATH "lib/cmake/xbyak")
 
 file(REMOVE_RECURSE
-    ${CURRENT_PACKAGES_DIR}/debug
-    ${CURRENT_PACKAGES_DIR}/lib
+    "${CURRENT_PACKAGES_DIR}/debug"
+    "${CURRENT_PACKAGES_DIR}/lib"
 )
 
-file(INSTALL ${SOURCE_PATH}/COPYRIGHT DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/COPYRIGHT")

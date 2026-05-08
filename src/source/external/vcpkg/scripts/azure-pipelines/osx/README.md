@@ -1,190 +1,271 @@
 # `vcpkg-eg-mac` VMs
 
-## Table of Contents
+This is the checklist for what the vcpkg team does when updating the macOS machines in the pool.
 
-- [`vcpkg-eg-mac` VMs](#vcpkg-eg-mac-vms)
-  - [Table of Contents](#table-of-contents)
-  - [Basic Usage](#basic-usage)
-  - [Setting up a new macOS machine](#setting-up-a-new-macos-machine)
+## Creating new base images
 
-## Basic Usage
+### Prerequisites
 
-The simplest usage, and one which should be used for when spinning up
-new VMs, and when restarting old ones, is a simple:
+- [ ] A Parallels license for amd64 or [macosvm](https://github.com/s-u/macosvm) allow-listed
+  by macOS for arm64. Note that the directory 'Parallels' is still used when using `macosvm`
+  just so that scripts know where to find the VM and friends.
+- [ ] An Xcode installer - you can get this from Apple's developer website,
+  although you'll need to sign in first: <https://developer.apple.com/downloads>  
+  If you are doing this from a local macos box, you can skip to the "update the macos host" step.  
 
-```
-$ cd ~/vagrant/vcpkg-eg-mac
-$ vagrant up
-```
+### Instructions (AMD64)
 
-Any modifications to the machines should be made in `configuration/Vagrantfile`
-and `Setup-VagrantMachines.ps1`, and make sure to push any changes!
+- [ ] Go to https://dev.azure.com/vcpkg/public/_settings/agentqueues , pick the current osx queue,
+      and delete one of the agents that are idle.
+- [ ] Go to that machine in the KVM. (Passwords are stored as secrets in the CPP_GITHUB\vcpkg\vcpkgmm-passwords key vault)
+- [ ] Open the Parallels Control Center, and delete the active VM.
+- [ ] Update the macos host
+- [ ] Update or install parallels
+- [ ] Download the macOS installer from the app store. See https://support.apple.com/en-us/102662  
+      Note: This portion of the instructions is that which breaks most often depending on what Parallels and macOS are doing.
+      You might need to use `softwareupdate --fetch-full-installer --full-installer-version 15.2` and point Parallels
+      at that resulting installer in 'Applications' instead.
+- [ ] Run parallels, and select that installer you just downloaded. Name the VM "vcpkg-osx-<DATE>-amd64", for example "vcpkg-osx-2025-01-24-amd64".
+- [ ] When creating the VM, customize the hardware to the following:
+    * 12 processors
+    * 24000 MB of memory
+    * 350 GB disk
+    * Disable sound output
+    * Disable microphone
+    * Do not share mac camera
+- [ ] Install MacOS like you would on real hardware.
+    * Apple ID: 'Set Up Later' / Skip
+    * Account name: vcpkg
+    * A very similar password :)
+    * Don't enable Location Services
+    * Share crashes with app developers
+    * Don't enable Ask Siri
+- [ ] Install Parallels Tools
+- [ ] Restart the VM
+- [ ] Change the desktop background to a solid color
+- [ ] Enable remote login in System Settings -> General -> Sharing -> Remote Login
+- [ ] Update the Azure Agent URI in setup-box.sh to the current version. You can find this by going to the agent pool, selecting "New agent", picking macOS, and copying the link. For example https://vstsagentpackage.azureedge.net/agent/4.248.0/vsts-agent-osx-x64-4.248.0.tar.gz
+- [ ] In the guest, set the vcpkg user to be able to use sudo without a password:
+    ```sh
+    printf 'vcpkg\tALL=(ALL)\tNOPASSWD:\tALL\n' | sudo tee -a '/etc/sudoers.d/vcpkg'
+    sudo chmod 0440 '/etc/sudoers.d/vcpkg'
+    ```
+- [ ] Copy setup-guest, setup-box.sh, and the xcode installer renamed to 'clt.dmg' to the host, and run setup-guest.sh.  From a developer machine:
+    ```sh
+    scp ./setup-guest.sh vcpkg@HOSTMACHINE:/Users/vcpkg
+    scp ./setup-box.sh vcpkg@HOSTMACHINE:/Users/vcpkg
+    scp path/to/console/tools.dmg vcpkg@HOSTMACHINE:/Users/vcpkg/clt.dmg
+    ssh vcpkg@HOSTMACHINE
+    rm ~/.ssh/known_hosts
+    chmod +x setup-guest.sh
+    ./setup-guest.sh
+    rm setup-guest.sh
+    rm setup-box.sh
+    rm clt.dmg
+    exit
+    ```
+- [ ] Shut down the VM cleanly
+- [ ] Ensure that there is no host system specific 'hardware' like macOS install .isos attached.
+- [ ] Set the VM 'Isolated'
+- [ ] Boot and then cleanly shut down the VM.
+- [ ] In Parallels control center, right click the VM and select "Prepare for Transfer"
+- [ ] In Parallels control center, right click the VM and remove it, but "Keep Files"
+- [ ] Copy the packaged VM to Azure Storage, with something like:
+    ```sh
+    ssh vcpkg@HOSTMACHINE
+    brew install azcopy
+    azcopy copy ~/Parallels/vcpkg-osx-2025-01-24-amd64.pvmp "https://vcpkgimageminting.blob.core.windows.net/pvms?<SAS>"
+    azcopy copy ~/Parallels/vcpkg-osx-2025-01-24-amd64.sha256.txt "https://vcpkgimageminting.blob.core.windows.net/pvms?<SAS>"
+    exit
+    ```
+- [ ] Go to https://dev.azure.com/vcpkg/public/_settings/agentqueues and create a new self hosted Agent pool named `PrOsx-YYYY-MM-DD` based on the current date. Grant microsoft.vcpkg.ci and microsoft.vcpkg.pr access.
+- [ ] Remove the macOS installer from Applications
+- [ ] Follow the "Deploying images" steps below for each machine in the fleet.
 
-## Setting up a new macOS machine
+### Instructions (ARM64)
 
-Before anything else, one must download `brew` and `powershell`.
+- [ ] Go to https://dev.azure.com/vcpkg/public/_settings/agentqueues , pick the current osx queue,
+      and delete one of the agents that are idle.
+- [ ] Go to that machine in the KVM. (Passwords are stored as secrets in the CPP_GITHUB\vcpkg\vcpkgmm-passwords key vault)
+- [ ] Update the macos host
+- [ ] (Once only) install `macosvm` to `~` (this tarball is also backed up in our `vcpkg-image-minting` storage account). For example from a dev workstation:
+    ```sh
+    ssh vcpkg@HOSTMACHINE
+    curl -L -o macosvm-0.2-1-arm64-darwin21.tar.gz https://github.com/s-u/macosvm/releases/download/0.2-1/macosvm-0.2-1-arm64-darwin21.tar.gz
+    tar xvf macosvm-0.2-1-arm64-darwin21.tar.gz
+    rm macosvm-0.2-1-arm64-darwin21.tar.gz
+    exit
+    ```
+- [ ] Download the matching `.ipsw` for the macOS copy to install. See https://mrmacintosh.com/apple-silicon-m1-full-macos-restore-ipsw-firmware-files-database/ ; links there to find the .ipsw. Example: https://updates.cdn-apple.com/2024FallFCS/fullrestores/072-44245/E811A1B0-28A9-4FCD-AE32-322E796F0EB8/UniversalMac_15.2_24C101_Restore.ipsw
+- [ ] Determine the VM name using the form "vcpkg-osx-<date>-arm64", for example "vcpkg-osx-2025-01-24-arm64".
+- [ ] Open a terminal and run the following commands to create the VM with vcpkg-osx-2025-01-24-arm64 and UniversalMac_15.2_24C101_Restore.ipsw replaced as appropriate. This must be run in the KVM as it uses a GUI:
+    ```sh
+    mkdir -p ~/Parallels/vcpkg-osx-2025-01-24-arm64
+    cd ~/Parallels/vcpkg-osx-2025-01-24-arm64
+    ~/macosvm --disk disk.img,size=500g --aux aux.img -c 8 -r 12g --restore ~/UniversalMac_15.2_24C101_Restore.ipsw ./vm.json
+    ~/macosvm -g ./vm.json
+    ```
+- [ ] Follow prompts as you would on real hardware.
+    * Apple ID: 'Set Up Later' / Skip
+    * Account name: vcpkg
+    * A very similar password
+    * No location services
+    * Yes send crash reports
+- [ ] Set the desktop wallpaper to a fixed color from Settings -> Wallpaper . (This makes the KVM a lot easier to use :) )
+- [ ] Enable remote login in the VM: Settings -> General -> Sharing -> Remote Login
+- [ ] Set the vcpkg user to be able to use sudo without a password. For example from a dev workstation:
+    ```sh
+    ssh vcpkg@HOSTMACHINE
+    rm ~/.ssh/known_hosts
+    ssh vcpkg@vcpkgs-Virtual-Machine.local
+    printf 'vcpkg\tALL=(ALL)\tNOPASSWD:\tALL\n' | sudo tee -a '/etc/sudoers.d/vcpkg'
+    sudo chmod 0440 '/etc/sudoers.d/vcpkg'
+    exit
+    ```
+- [ ] Update the Azure Agent URI in setup-box.sh to the current version. You can find this by going to the agent pool, selecting "New agent", picking macOS, and copying the link. For example https://vstsagentpackage.azureedge.net/agent/4.248.0/vsts-agent-osx-arm64-4.248.0.tar.gz
+- [ ] Copy setup-box.sh and the xcode installer renamed to 'clt.dmg' to the host. For example from a dev workstation:
+    ```sh
+    scp ./setup-guest.sh vcpkg@HOSTMACHINE:/Users/vcpkg
+    scp ./setup-box.sh vcpkg@HOSTMACHINE:/Users/vcpkg
+    scp path/to/console/tools.dmg vcpkg@HOSTMACHINE:/Users/vcpkg/clt.dmg
+    ssh vcpkg@HOSTMACHINE
+    chmod +x setup-guest.sh
+    ./setup-guest.sh
+    rm setup-guest.sh
+    rm setup-box.sh
+    rm clt.dmg
+    exit
+    ```
+- [ ] Shut down the VM cleanly.
+- [ ] Mint a SAS token to vcpkgimageminting/pvms with read, add, create, write, and list permissions.
+- [ ] Package the VM into a tarball. For example from a dev workstation:
+    ```sh
+    ssh vcpkg@HOSTMACHINE
+    cd ~/Parallels
+    aa archive -d vcpkg-osx-<date>-arm64 -o vcpkg-osx-<date>-arm64.aar -enable-holes
+    brew install azcopy
+    azcopy copy vcpkg-osx-<date>-arm64.aar "https://vcpkgimageminting.blob.core.windows.net/pvms?<SAS>"
+    exit
+    ```
+- [ ] Go to https://dev.azure.com/vcpkg/public/_settings/agentqueues and create a new self hosted Agent pool named `PrOsx-YYYY-MM-DD-arm64` based on the current date. Grant microsoft.vcpkg.ci and microsoft.vcpkg.pr access.
+- [ ] Follow the "Deploying images" steps below for each machine in the fleet.
 
-```sh
-$ /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"
-$ brew cask install powershell
-```
+## Deploying images
 
-Then, we need to download the `vcpkg` repository:
+### Running the VM (AMD64)
 
-```sh
-$ git clone https://github.com/microsoft/vcpkg
-```
+Run these steps on each machine to add to the fleet. Skip steps that were done implicitly above if this machine was used to build a box.
 
-Then, we need to mint an SSH key:
+- [ ] If this machine was used before, delete it from the pool of which it is a member from https://dev.azure.com/vcpkg/public/_settings/agentqueues
+- [ ] Log in to the machine using the KVM.
+- [ ] Check for software updates in macOS system settings
+- [ ] Check for software updates in Parallels' UI
+- [ ] Mint a SAS token URI to the box to use from the Azure portal if you don't already have one, and download the VM. (Recommend running this via SSH from domain joined machine due to containing SAS tokens). From a developer machine:
+    ```sh
+    ssh vcpkg@HOSTMACHINE
+    brew install azcopy
+    cd ~/Parallels
+    azcopy copy "https://vcpkgimageminting.blob.core.windows.net/pvms/vcpkg-osx-<DATE>-amd64.pvmp?<SAS>" .
+    azcopy copy "https://vcpkgimageminting.blob.core.windows.net/pvms/vcpkg-osx-<DATE>-amd64.sha256.txt?<SAS>" .
+    exit
+    ```
+- [ ] Open the .pvmp in Parallels, and unpack it.
+- [ ] Open the 'Configure' screen for the VM, and under Options -> Startup and Shutdown, set the following:
+    * Custom
+    * Start Automatically: When Mac Starts
+    * Startup View: Headless
+    * On VM Shutdown: Close Window (this one should already be set)
+    * On Mac Shutdown: Shut Down
+    * On Window Close: Keep Running in the Background
+- [ ] Close and restart Parallels Desktop. The VM should start automatically.
+- [ ] [grab a PAT][] if you don't already have one
+- [ ] Copy the guest deploy script to the host, and run it with a first parameter of your PAT. From a developer machine:
+    ```sh
+    scp ./register-guest.sh vcpkg@HOSTMACHINE:/Users/vcpkg
+    ssh vcpkg@HOSTMACHINE
+    rm .ssh/known_hosts
+    chmod +x register-guest.sh
+    ./register-guest.sh <PAT>
+    rm register-guest.sh
+    exit
+    ```
+- [ ] In the VM, open a terminal on the host and run:
+    ```
+    ssh -i ~/Parallels/*/id_guest vcpkg@`prlctl list --full | sed -nr 's/^.*running *([0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}).*/\1/p'`
+    ~/myagent/run.sh
+    ```
+- [ ] Check that the machine shows up in the pool.
+- [ ] Lock the screen on the host.
+- [ ] Update the "vcpkg Macs" spreadsheet line for the machine with the new pool.
 
-```sh
-$ ssh-keygen
-$ cat .ssh/id_rsa.pub
-```
+[grab a PAT]: #getting-an-azure-pipelines-pat
 
-Add that SSH key to `authorized_keys` on the file share machine with the base box.
+### Running the VM (ARM64)
 
-Next, install prerequisites and grab the current base box with:
-```sh
-$ cd vcpkg/scripts/azure-pipelines/osx
-$ ./Install-Prerequisites.ps1 -Force
-$ ./Get-InternalBaseBox.ps1 -FileshareMachine vcpkgmm-01.guest.corp.microsoft.com -BoxVersion 2020-09-28
-```
+Run these steps on each machine to add to the fleet. Skip steps that were done implicitly above if this machine was used to build a box.
 
-... where -BoxVersion is the version you want to use.
+- [ ] If this machine was used before, delete it from the pool of which it is a member from https://dev.azure.com/vcpkg/public/_settings/agentqueues
+- [ ] Log in to the machine using the KVM.
+- [ ] Check for software updates in macOS system settings
+- [ ] (Once only) install `macosvm` to `~` (this tarball is also backed up in our `vcpkg-image-minting` storage account). From a developer machine:
+    ```sh
+    ssh vcpkg@HOSTMACHINE
+    curl -L -o macosvm-0.2-1-arm64-darwin21.tar.gz https://github.com/s-u/macosvm/releases/download/0.2-1/macosvm-0.2-1-arm64-darwin21.tar.gz
+    tar xvf macosvm-0.2-1-arm64-darwin21.tar.gz
+    rm macosvm-0.2-1-arm64-darwin21.tar.gz
+    exit
+    ```
+- [ ] Skip if this is the image building machine. Mint a SAS token URI to the box to use from the Azure portal if you don't already have one, and download the VM. (Recommend running this via SSH from domain joined machine due to containing SAS tokens). From a developer machine:
+    ```sh
+    ssh vcpkg@HOSTMACHINE
+    brew install azcopy
+    mkdir -p ~/Parallels
+    cd ~/Parallels
+    azcopy copy "https://vcpkgimageminting.blob.core.windows.net/pvms/vcpkg-osx-<DATE>-arm64.aar?<SAS>" vcpkg-osx-<DATE>-arm64.aar
+    aa extract -d vcpkg-osx-<DATE>-arm64 -i ./vcpkg-osx-<DATE>-arm64.aar -enable-holes
+    exit
+    ```
+- [ ] Open a separate terminal window on the host and start the VM by running:
+    ```sh
+    cd ~/Parallels/vcpkg-osx-<DATE>-arm64
+    ~/macosvm ./vm.json
+    ```
+- [ ] [grab a PAT][] if you don't already have one
+- [ ] Copy the guest deploy script to the host, and run it with a first parameter of your PAT. From a developer machine:
+    ```sh
+    scp ./register-guest.sh vcpkg@HOSTMACHINE:/Users/vcpkg
+    ssh vcpkg@HOSTMACHINE
+    rm .ssh/known_hosts
+    chmod +x register-guest.sh
+    ./register-guest.sh <PAT>
+    rm register-guest.sh
+    exit
+    ```
+- [ ] In the KVM's terminal, relaunch the VM in ephemeral mode with:
+    ```sh
+    ~/macosvm --ephemeral ./vm.json
+    ```
+- [ ] Open a terminal window on the host and run the agent
+    ```sh
+    ssh -i ~/Parallels/*/id_guest vcpkg@vcpkgs-Virtual-Machine.local
+    ~/myagent/run.sh
+    ```
+- [ ] Check that the machine shows up in the pool, and lock the vcpkg user on the host.
+- [ ] Lock the screen on the host.
+- [ ] Update the "vcpkg Macs" spreadsheet line for the machine with the new pool.
 
-Getting the base box will fail due to missing kernel modules for osxfuse, sshfs, and/or VirtualBox.
-Log in to the machine, open System Preferences > Security & Privacy > General, and allow the kernel
-extensions for VirtualBox and sshfs to load. Then, again:
+[grab a PAT]: #getting-an-azure-pipelines-pat
 
-```sh
-$ ./Get-InternalBaseBox.ps1 -FileshareMachine vcpkgmm-01.guest.corp.microsoft.com -BoxVersion 2020-09-28
-```
+## Getting an Azure Pipelines PAT
 
-Replace `XX` with the number of
-the virtual machine. Generally, that should be the same as the number
-for the physical machine; i.e., vcpkgmm-04 would use 04.
+Personal Access Tokens are an important part of this process,
+and they are fairly easy to generate.
+On ADO, under the correct project (in vcpkg's case, "vcpkg"),
+click on the "User Settings" icon, then go to "Personal access tokens".
+It is the icon to the left of your user icon, in the top right corner.
 
-```sh
-  # NOTE: you may get an error about CoreCLR; see the following paragraph if you do
-$ ./Setup-VagrantMachines.ps1 \
-  -MachineId XX \
-  -DevopsPat '<get this from azure devops; it needs agent pool read and manage access>' \
-  -Date <this is the date of the pool; 2020-09-28 at time of writing>
-$ cd ~/vagrant/vcpkg-eg-mac
-$ vagrant up
-```
-
-If you see the following error:
-
-```
-Failed to initialize CoreCLR, HRESULT: 0x8007001F
-```
-
-You have to reboot the machine; run
-
-```sh
-$ sudo shutdown -r now
-```
-
-and wait for the machine to start back up. Then, start again from where the error was emitted.
-
-## Creating a new Vagrant box
-
-Whenever we want to install updated versions of the command line tools,
-or of macOS, we need to create a new vagrant box.
-This is pretty easy, but the results of the creation are not public,
-since we're concerned about licensing.
-However, if you're sure you're following Apple's licensing,
-you can set up your own vagrant boxes that are the same as ours by doing the following:
-
-You'll need some prerequisites:
-
-- macinbox - installable via `sudo gem install macinbox`
-- vagrant - found at <https://www.vagrantup.com/>
-- VirtualBox - found at <https://www.virtualbox.org/>
-- A macOS installer application - you can get this from the App Store (although I believe only the latest is available)
-- An Xcode Command Line Tools installer - you can get this from Apple's developer website,
-  although you'll need to sign in first: <https://developer.apple.com/downloads>
-
-First, you'll need to create a base box;
-this is where you determine what version of macOS is installed.
-
-```
-> sudo macinbox \
-  --box-format virtualbox \
-  --name macos-ci-base \
-  --installer <path to macOS installer> \
-  --no-gui
-```
-
-Once you've done that, create a Vagrantfile that looks like the following:
-
-```rb
-Vagrant.configure('2') do |config|
-  config.vm.box = 'macos-ci-base'
-  config.vm.boot_timeout = 600
-  config.vm.synced_folder ".", "/vagrant", disabled: true
-end
-```
-
-then, run the following in that vagrant directory:
-
-```sh
-$ vagrant up
-$ vagrant scp <path to Command Line Tools for Xcode installer> :clt.dmg
-$ vagrant ssh -c 'hdiutil attach clt.dmg -mountpoint /Volumes/setup-installer'
-$ vagrant ssh -c 'sudo installer -pkg "/Volumes/setup-installer/Command Line Tools.pkg" -target /'
-$ vagrant ssh -c 'hdiutil detach /Volumes/setup-installer'
-$ vagrant ssh -c 'rm clt.dmg'
-$ vagrant ssh -c '/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install.sh)"'
-$ vagrant reload
-```
-
-if that works, you can now package the box:
-
-```sh
-$ vagrant ssh -c 'umount testmnt && rmdir testmnt'
-$ vagrant package
-```
-
-This will create a `package.box`, which is the box file for the base VM.
-Then, you can `vagrant box add <package.box> --name <name for the box>`,
-and you'll have the base vcpkg box added for purposes of `Setup-VagrantMachines.ps1`!
-
-Once you've created the base box, if you're making it the new base box for the CI,
-upload it to the fileshare, under `share/vcpkg-boxes`.
-Then, add the metadata about the box (the name and version) to the JSON file there.
-Once you've done that, add the software versions under [VM Software Versions](#vm-software-versions).
-
-### VM Software Versions
-
-* 2020-09-28:
-  * macOS: 10.15.6
-  * Xcode CLTs: 12
-
-### (Internal) Accessing the macOS fileshare
-
-The fileshare is located on `vcpkgmm-01`, under the `fileshare` user, in the `share` directory.
-In order to get `sshfs` working on the physical machine,
-you'll need to do the same thing one needs to do for building the base box.
-You can run `Install-Prerequisites.ps1` to grab the right software, then either:
-
-```sh
-$ mkdir vagrant/share
-$ sshfs fileshare@<vcpkgmm-01 URN>:/Users/fileshare/share vagrant/share
-```
-
-or you can just run
-
-```sh
-$ ./Get-InternalBaseBox.ps1
-```
-
-which will do the thing automatically.
-
-If you get an error, that means that gatekeeper has prevented the kernel extension from loading,
-so you'll need to access the GUI of the machine, go to System Preferences,
-Security & Privacy, General, unlock the settings,
-and allow system extensions from the osxfuse developer to run.
-Then, you'll be able to add the fileshare as an sshfs.
+Then, create a new token, give it a name, make sure it expires quickly,
+and give it a custom defined scope that includes the
+"Agent pools: Read & manage" permission (you'll need to "Show all scopes"
+to access this).
+You can now copy this token and use it to allow machines to join.

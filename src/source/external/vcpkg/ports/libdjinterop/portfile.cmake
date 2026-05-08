@@ -1,18 +1,22 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO xsco/libdjinterop
-    REF 0.14.6
-    SHA512 3d05bc882ddc309a1b0d5e97572ede1aa826b662a19ffd8ee874c13ead668d1c3f14d59bf861ae3880588e1a9b94e4a92ccdbb5df71bfb7ffe28f57a1b123f18
+    REF "${VERSION}"
+    SHA512 8107f2e6461c6c8f45592caf90b3a0775330960bc565724a53ae91b39f7911dab52725b6993182c0bc663c588acab6ee9e58a3c10426bf2d81a801bcfe540569
     HEAD_REF master
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
-)
-vcpkg_install_cmake()
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        -DCMAKE_DISABLE_FIND_PACKAGE_Boost=ON
+    )
+vcpkg_cmake_install()
 
+vcpkg_cmake_config_fixup(PACKAGE_NAME djinterop CONFIG_PATH lib/cmake/DjInterop)
+vcpkg_fixup_pkgconfig()
 vcpkg_copy_pdbs()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

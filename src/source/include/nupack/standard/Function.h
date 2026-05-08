@@ -22,5 +22,13 @@ struct Observer {
 
 /******************************************************************************************/
 
+template <class R, class ...Ts>
+struct memory::impl<std::function<R(Ts...)>> {
+    constexpr std::size_t operator()(std::function<R(Ts...)> const &t) const {
+        return sizeof(t);
+    }
+    void erase(std::function<R(Ts...)> &t) const {t = {};}
+};
+
 }
 

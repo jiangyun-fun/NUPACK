@@ -11,7 +11,6 @@
 #include "../algorithms/Operators.h"
 #include "../algorithms/Numeric.h"
 
-#include <vector>
 #include <algorithm>
 #include <numeric>
 
@@ -28,8 +27,8 @@ template <class V> V reserved(std::size_t n) {V v; reserve_space(v, n); return v
 
 /// Accumulate container with optional unary predicate
 template <class V, class B, class F=Identity>
-auto accumulate(V const &v, B const &update, F const &f={}) -> no_qual<decltype(f(*begin_of(v)))> {
-    if (begin_of(v) == end_of(v)) return no_qual<decltype(f(*begin_of(v)))>{zero};
+auto accumulate(V const &v, B const &update, F &&f={}) -> no_qual<decltype(f(*begin_of(v)))> {
+    if (begin_of(v) == end_of(v)) return no_qual<decltype(f(*begin_of(v)))>();
     auto ret = f(*begin_of(v));
     for (auto it = std::next(begin_of(v)); it != end_of(v); ++it) update(ret, f(*it));
     return ret;
@@ -37,20 +36,20 @@ auto accumulate(V const &v, B const &update, F const &f={}) -> no_qual<decltype(
 
 /// Sum of container with optional unary predicate
 template <class V, class F=Identity>
-auto sum(V const &v, F const &f={}) -> no_qual<decltype(f(*begin_of(v)))> {
+auto sum(V const &v, F &&f={}) -> no_qual<decltype(f(*begin_of(v)))> {
     return accumulate(v, plus_eq, f);
 }
 
 /// Product of container with optional unary predicate
 template <class V, class F=Identity>
-auto product(V const &v, F const &f={}) -> no_qual<decltype(f(*begin_of(v)))> {
+auto product(V const &v, F &&f={}) -> no_qual<decltype(f(*begin_of(v)))> {
     return accumulate(v, times_eq, f);
 }
 
 /// Prefix sums of a container: if keep_first is true, then the returned vector starts with a 0
 template <class Out=void, class V, class F=plus_t>
-auto prefixes(bool keep_first, V const &v, F const &f={}) {
-    nonvoid<Out, std::vector<value_type_of<V>>> ret(static_cast<std::size_t>(keep_first), value_type_of<V>{});
+auto prefixes(bool keep_first, V const &v, F &&f={}) {
+    nonvoid<Out, vec<value_type_of<V>>> ret(static_cast<std::size_t>(keep_first), value_type_of<V>{});
     std::partial_sum(begin_of(v), end_of(v), std::back_inserter(ret), f);
     return ret;
 }
@@ -70,14 +69,14 @@ template <class V, class F=less_t> V sorted(V v, F &&f={}) {sort(v, fw<F>(f)); r
 template <class V, class F=less_t> bool is_sorted(V const &v, F &&f={}) {return std::is_sorted(begin_of(v), end_of(v), fw<F>(f));}
 
 template <class R=void, class V, class F=less_t> auto arg_sort(V const &v, F &&f={}) {
-    nonvoid<R, std::vector<size_type_of<V>>> out{indices(v)};
+    nonvoid<R, vec<size_type_of<V>>> out{indices(v)};
     sort(out, [&](auto i, auto j) {return f(v[i], v[j]);});
     return out;
 }
 
 template <class R=void, class V, class F=less_t>
 auto iter_sort(V &&v, F &&f={}) {
-    nonvoid<R, std::vector<decltype(begin_of(v))>> out{iterators(v)};
+    nonvoid<R, vec<decltype(begin_of(v))>> out{iterators(v)};
     sort(out, [&](auto i, auto j) {return f(*i, *j);});
     return out;
 }
@@ -182,6 +181,11 @@ void circular_cat(V1 &to, V2 const &from, const_iterator_of<V2> i, const_iterato
 
 /******************************************************************************************/
 
+template <class V>
+auto rotate_once(V &&v) {return std::rotate(begin_of(v), std::next(begin_of(v)), end_of(v));}
+
+/******************************************************************************************/
+
 /// Rotate so the element with the minimum begin_of() in a range is at the beginning
 template <class V> auto rotate_min_begin(V &v) {
     auto it = std::min_element(begin_of(v), end_of(v), [](auto &&s1, auto &&s2) {return begin_of(s1) < begin_of(s2);});
@@ -213,7 +217,7 @@ auto fill(V &v, T const &t) -> decltype(v = t) {return v = t;}
 
 /// Fill a range with a value
 template <class V, class T, NUPACK_IF(!can_assign_from<V, T>)>
-V & fill(V &v, T const &t) {for (auto &i : v) fill(i, t); return v;}
+V && fill(V &&v, T const &t) {for (auto &i : v) fill(i, t); return static_cast<V &&>(v);}
 
 /******************************************************************************************/
 
@@ -284,43 +288,60 @@ template <class ...V> void erase_all(V &...v) {(void) std::initializer_list<int>
 
 NUPACK_DETECT_2(can_emplace_back, decltype(declval<T>().emplace_back(declval<U>())));
 
-template <class R, class V, class F, class P=AlwaysTrue, NUPACK_IF(!can_emplace_back<R, decltype(declval<F>()(*begin_of(declval<V>())))>)>
-auto vmap(V &&v, F &&map, P &&predicate={}) {
+template <class R, class V, class F=Identity, class P=AlwaysTrue, NUPACK_IF(is_like<P, AlwaysTrue> && !can_emplace_back<R, decltype(declval<F>()(*begin_of(declval<V &>())))>)>
+auto vmap(V &&v, F &&map={}, P &&predicate={}) {
     R ret(len(v));
     auto i = begin_of(ret);
-    for (auto j = begin_of(v); j != end_of(v); ++i, ++j) if (predicate(*j)) *i = map(*j);
+    auto const &e = end_of(v);
+    for (auto j = begin_of(v); j != e; ++i, ++j) *i = map(*j);
     return ret;
 }
 
 /// Apply a functor f across a range v and collect the results in a container
-template <class R, class V, class F, class P=AlwaysTrue, NUPACK_IF(can_emplace_back<R, decltype(declval<F>()(*begin_of(declval<V>())))>)>
-auto vmap(V &&v, F &&map, P &&predicate={}) {
+template <class R, class V, class F=Identity, class P=AlwaysTrue, NUPACK_IF(can_emplace_back<R, decltype(declval<F>()(*begin_of(declval<V &>())))>)>
+auto vmap(V &&v, F &&map={}, P &&predicate={}) {
     R ret;
-    reserve_space(ret, len(v));
-    for (auto i = begin_of(v); i != end_of(v); ++i) if (predicate(*i)) ret.emplace_back(map(*i));
+    if constexpr(is_like<P, AlwaysTrue>) reserve_space(ret, len(v));
+    auto const &e = end_of(v);
+    for (auto i = begin_of(v); i != e; ++i) if (is_like<P, AlwaysTrue> || predicate(*i)) ret.emplace_back(map(*i));
     return ret;
 }
 
-template <template <class...> class R=std::vector, class V, class F, class P=AlwaysTrue>
-auto vmap(V &&v, F &&map, P &&predicate={}) {
+template <template <class> class R=default_vec, class V, class F=Identity, class P=AlwaysTrue>
+auto vmap(V &&v, F &&map={}, P &&predicate={}) {
     return vmap<R< no_qual<decltype(map(*begin_of(v)))> >>(fw<V>(v), fw<F>(map), fw<P>(predicate));
 }
 
+template <template <class> class R=default_vec, class V, class F>
+auto imap(V &&v, F &&map={}) {
+    return vmap<R>(fw<V>(v), [&map, n=std::size_t(0)](auto &&x) mutable {return map(n++, x);});
+}
+
+template <class R, class V, class F>
+auto imap(V &&v, F &&map={}) {
+    return vmap<R>(fw<V>(v), [&map, n=std::size_t(0)](auto &&x) mutable {return map(n++, x);});
+}
+
+/******************************************************************************************/
+
 /// For a range of indices is... and a container v, return [v[i]...] as a new container
-template <class R, class I, class V> auto imap(I const &is, V const &v) {
+template <class R, class I, class V> auto index_map(I const &is, V const &v) {
     return vmap<R>(is, [&](auto i) -> decltype(v[i]) {return v[i];});
 }
 
-template <class I, class V> auto imap(I const &is, V const &v) {return imap<V>(is, v);}
+template <class I, class V> auto index_map(I const &is, V const &v) {return index_map<V>(is, v);}
 
-template <template <class ...> class R=std::vector, class T>
+template <template <class ...> class R=default_vec, class T>
 auto vfull(std::size_t n, T const &t) {return R<T>(n, t);}
 
 /******************************************************************************************/
 
 /// Copy first range into second range
 template <class T, class U>
-auto copy_range(T const &t, U &&u) {return std::copy(begin_of(t), end_of(t), begin_of(u));}
+auto forward_copy(T const &t, U &&u) {return std::copy(begin_of(t), end_of(t), begin_of(u));}
+
+template <class T, class U>
+auto reverse_copy(T const &t, U &&u) {return std::reverse_copy(begin_of(t), end_of(t), begin_of(u));}
 
 /******************************************************************************************/
 

@@ -3,22 +3,62 @@
 #include <nupack/design/Specification.h>
 #include <nupack/reflect/Serialize.h>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
-void DesignParameters::init_rng() const {
-    auto seed = rng_seed;
-    std::random_device rd;
-    while (seed == 0) seed = rd();
-    StaticRNG.seed(seed);
+/******************************************************************************************/
+
+auto open_file_log(string const &s) {
+    std::shared_ptr<std::ostream> os;
+    if (s == "stdout") {
+        os = std::shared_ptr<std::ostream>(&std::cout, NoOp());
+    } else if (s == "stderr") {
+        os = std::shared_ptr<std::ostream>(&std::cerr, NoOp());
+    } else {
+        os = std::make_shared<std::ofstream>(s);
+    }
+
+    return [os=std::move(os)](auto const &...ts) {
+        print_os<io::character<';'>, io::endl>(*os, ts...);
+    };
 }
 
-/**
- * @brief encapsulates an expression in a lambda so that it only gets evaluated
- * if the value is actually needed (by logging).
- *
- */
-#define LAZY(x) [&] {return x;}
+/******************************************************************************************/
 
+Logs get_logs(DesignParameters const &p) {
+    Logs logs;
+    if (!p.log.empty()) {
+        auto f = open_file_log(p.log);
+        f("time", "type", "depth", "psi_active", "psi_passive", "sequence", "defect");
+        logs.basic = std::move(f);
+    }
+    if (!p.decomposition_log.empty()) {
+        auto f = open_file_log(p.decomposition_log);
+        f("index", "name", "decomposition");
+        logs.decomposition = std::move(f);
+    }
+    return logs;
+}
+
+EngineObserver get_thermo_log(DesignParameters const &p) {
+    EngineObserver obs;
+    if (!p.thermo_log.empty()) {
+        auto f = open_file_log(p.thermo_log);
+        f("type", "length", "time", "cache possible");
+        obs.log = std::move(f);
+    }
+    obs.slowdown = p.slowdown;
+    return obs;
+}
+
+/******************************************************************************************/
+
+std::size_t DesignParameters::init_rng() const {
+    auto s = seed;
+    std::random_device rd;
+    while (s == 0) s = rd();
+    StaticRNG.seed(s);
+    return s;
+}
 
 /**
  * @brief initializes random sequence consistent with constraint and
@@ -28,14 +68,18 @@ void DesignParameters::init_rng() const {
  * @param decompose whether or not to decompose complexes (to allow root-only
  * design)
  */
-void Designer::initialize(bool decompose) {
-    parameters.init_rng();
+void Designer::initialize(Env const &env, bool decompose) {
+    if (parameters.seed != 0) design.sequences.constraints.msec_cutoff = 0;
+    stats.seed = parameters.init_rng();
 
     timer = Timer().start();
 
-    design.initialize_sequence();
+    try {
+        design.initialize_sequence();
+    } catch (Gecode::SpaceFailed const &) {
+        NUPACK_ERROR("Failed constraint space: hard constraints on designed sequences are incompatible");
+    }
     // disable constraint solver switching if deterministic (see comment in Constraints.cc)
-    if (parameters.rng_seed != 0) design.sequences.constraints.msec_cutoff = 0;
 
     /* burn in for constraint co-variation */
     // auto temp_seq = design.sequence();
@@ -43,27 +87,7 @@ void Designer::initialize(bool decompose) {
     // design.set_sequence(temp_seq);
     /* end burn in */
 
-    if (decompose) design.initialize_decomposition(Psi);
-
-    // {
-    //     for (auto &c : design.complexes) {
-    //         c.index_nodes();
-    //         for (auto depth : range(c.depth())) {
-    //             BEEP(depth);
-    //             auto inds = c.get_node_indices(depth);
-    //             c.decomposition.apply_recursive([&](auto const &node) {
-    //                 if (contains(inds, node.index)) {
-    //                     BEEP(len(node), node.structure);
-    //                 }
-    //             });
-    //         }
-    //     }
-    // }
-
-    /* ensure models are already created before parallel access */
-    for (auto const &c : design.complexes) {
-        for_each(c.target.cached_models(design.models), [&](auto const& m) {m.reserve(2 * len(c));});
-    }
+    if (decompose) design.initialize_decomposition(env, Psi);
 
     /* reserve cache for models */
     design.models.create_caches(parameters.cache_bytes_of_RAM);
@@ -82,7 +106,7 @@ void Designer::initialize(bool decompose) {
  *
  * @param depth the depth at which redecomposition starts in each complex
  */
-void Designer::redecompose_active(Local const &env, uint depth) {
+void Designer::redecompose_active(Env const &env, uint depth) {
     design.redecompose_active(env, depth, Psi);
     max_depth = design.max_depth();
 }
@@ -101,9 +125,7 @@ void Designer::redecompose_active(Local const &env, uint depth) {
  * @return true the child defect after redecomposition is within threshold distance from parent
  * @return false the child defect still underestimates the parent by too much.
  */
-bool Designer::redecompose(uint depth, Sequence const &sequence) {
-    Local env;
-
+bool Designer::redecompose(Env const &env, uint depth, Sequence const &sequence) {
     auto saved_seq = design.sequence();
     design.set_sequence(sequence);
 
@@ -211,15 +233,15 @@ bool Designer::redecompose(uint depth, Sequence const &sequence) {
         LevelSpecification spec;
         spec.add_exception(node_index, 0);
 
-        bool changed = c.probability_decompose(design.sequence(), design.models, c.depth()+1, spec, obs);
+        bool changed = c.probability_decompose(env, design.sequence(), design.models, c.depth()+1, spec, obs);
         any_changed |= changed;
 
         if (changed) changed_complex_inds.emplace(comp_index);
 
         child_defect = design.normalized_defect(env, depth+1, Psi, {}, weights, obs);
 
-        logs.log("basic", time_elapsed(), "redecomposed", depth+1, Psi.num_active(), Psi.num_inactive(),
-                design.sequences.json_domains(), LAZY(child_defect.total()));
+        if (logs.basic) logs.basic(time_elapsed(), "redecomposed", depth+1, Psi.num_active(), Psi.num_inactive(),
+                design.sequences.json_domains(), child_defect.total());
         ++cur;
     }
 
@@ -232,7 +254,7 @@ bool Designer::redecompose(uint depth, Sequence const &sequence) {
 
     for (auto i : changed_complex_inds) {
         auto const &c = at(design.complexes, i);
-        logs.log("decomposition", i, c.name, LAZY(c.json_decomposition()));
+        if (logs.decomposition) logs.decomposition(i, c.name, c.json_decomposition());
     }
 
     // BEEP(condition(child_defect), parent.total(), child_defect.total());
@@ -247,14 +269,14 @@ bool Designer::redecompose(uint depth, Sequence const &sequence) {
  * @param subset indices into complexes vector of complexes that should be decomposed
  * @param depth the depth at which decomposition starts in each complex
  */
-void Designer::subset_decompose(vec<uint> subset, uint depth) {
+void Designer::subset_decompose(Env const &env, vec<uint> subset, uint depth) {
     for (auto c : subset) {
-        at(design.complexes, c).probability_decompose(design.sequence(), design.models, depth, {}, obs);
+        at(design.complexes, c).probability_decompose(env, design.sequence(), design.models, depth, {}, obs);
     }
 
     for (auto i : subset) {
         auto const &c = at(design.complexes, i);
-        logs.log("decomposition", i, c.name, LAZY(c.json_decomposition()));
+        if (logs.decomposition) logs.decomposition(i, c.name, c.json_decomposition());
     }
 
     max_depth = design.max_depth();
@@ -270,7 +292,7 @@ void Designer::subset_decompose(vec<uint> subset, uint depth) {
  * @param init_estimate the defect calculated for the focused estimate at the
  * root level before adding more off-targets during this refocus operation
  */
-void Designer::refocus(Local const &env, Sequence const &sequence) {
+void Designer::refocus(Env const &env, Sequence const &sequence) {
     auto saved_seq = design.sequence();
     design.set_sequence(sequence);
 
@@ -305,7 +327,7 @@ void Designer::refocus(Local const &env, Sequence const &sequence) {
 
     auto estimate = design.normalized_defect(env, 0, part, {}, weights, obs);
     // {design.sequence(), {design.normalized_defect(env, 0, part)}};
-    logs.log("basic", time_elapsed(), "refocused", 0, part.num_active(), part.num_inactive(), design.sequences.json_domains(), LAZY(estimate.total()));
+    if (logs.basic) logs.basic(time_elapsed(), "refocused", 0, part.num_active(), part.num_inactive(), design.sequences.json_domains(), estimate.total());
 
 
     real cutoff = parameters.f_refocus * (full.total() - init_estimate.total());
@@ -314,12 +336,12 @@ void Designer::refocus(Local const &env, Sequence const &sequence) {
         at(part.mask, *(++cur)) = true;
         estimate = design.normalized_defect(env, 0, part, {}, weights, obs);
         // {design.sequence(), {design.normalized_defect(env, 0, part)}};
-        logs.log("basic", time_elapsed(), "refocused", 0, part.num_active(), part.num_inactive(), design.sequences.json_domains(), LAZY(estimate.total()));
+        if (logs.basic) logs.basic(time_elapsed(), "refocused", 0, part.num_active(), part.num_inactive(), design.sequences.json_domains(), estimate.total());
     }
 
     vec<uint> changed;
     izip(part.mask, Psi.mask, [&](auto i, auto n, auto o) {if (n && !o) changed.emplace_back(i);});
-    subset_decompose(Psi.actives());
+    subset_decompose(env, Psi.actives());
     stats.offtargets_added_per_refocus.emplace_back(len(changed));
 
     Psi = part;
@@ -339,17 +361,11 @@ void Designer::refocus(Local const &env, Sequence const &sequence) {
  * @param env compute resources allowing for potential parallel execution
  * @return the best discovered root-level and full-ensemble defect
  */
-Result Designer::optimize_tubes(Local const &env) {
-    /* print headers for CSV log files */
-    logs.log("basic", "time", "type", "depth", "psi_active", "psi_passive", "sequence", "defect");
-    // logs.log("thermo", "type", "length", "time", "cache possible");
-    obs.log("thermo", "type", "length", "time", "cache possible");
-    logs.log("decomposition", "index", "name", "decomposition");
-
+Result Designer::optimize_tubes(Env const &env) {
     /* initial logging of active decompositions */
     for (auto i : Psi.actives()) {
         auto const &c = at(design.complexes, i);
-        logs.log("decomposition", i, c.name, LAZY(c.json_decomposition()));
+        if (logs.decomposition) logs.decomposition(i, c.name, c.json_decomposition());
     }
 
     // return alternate_optimize_tubes(env);
@@ -357,7 +373,7 @@ Result Designer::optimize_tubes(Local const &env) {
 }
 
 
-Result Designer::optimize_tubes_impl(Local const &env) {
+Result Designer::optimize_tubes_impl(Env const &env) {
     /******************************************************************/
     max_depth = design.max_depth();
 
@@ -366,21 +382,21 @@ Result Designer::optimize_tubes_impl(Local const &env) {
     Result full = reevaluate_objectives(env, estimate, 0, {}, weights);
     // {design.sequence(), {design.normalized_defect(env)}};
     if (full.weighted_total() < best.full.weighted_total()) best.full = full;
-    logs.log("basic", time_elapsed(), "root accepted", 0, Psi.num_active(), Psi.num_inactive(), design.sequences.json_domains(full.sequence), LAZY(full.weighted_total()));
+    if (logs.basic) logs.basic(time_elapsed(), "root accepted", 0, Psi.num_active(), Psi.num_inactive(), design.sequences.json_domains(full.sequence), full.weighted_total());
 
 
     while (full.weighted_total() > max(parameters.f_stop, estimate.weighted_total())) {
-        checkpoint(*this, false);
+        if (checkpoint(*this, false)) break;
         refocus(env, full.sequence);
         estimate = optimize_forest(env, full.sequence);
         design.set_sequence(estimate.sequence);
         full = reevaluate_objectives(env, estimate, 0, {}, weights);
         // {design.sequence(), {design.normalized_defect(env)}};
         if (full.weighted_total() < best.full.weighted_total()) {
-            logs.log("basic", time_elapsed(), "root accepted", 0, Psi.num_active(), Psi.num_inactive(), design.sequences.json_domains(full.sequence), LAZY(full.weighted_total()));
+            if (logs.basic) logs.basic(time_elapsed(), "root accepted", 0, Psi.num_active(), Psi.num_inactive(), design.sequences.json_domains(full.sequence), full.weighted_total());
             best.full = full;
         } else {
-            logs.log("basic", time_elapsed(), "root rejected", 0, Psi.num_active(), Psi.num_inactive(), design.sequences.json_domains(full.sequence), LAZY(full.weighted_total()));
+            if (logs.basic) logs.basic(time_elapsed(), "root rejected", 0, Psi.num_active(), Psi.num_inactive(), design.sequences.json_domains(full.sequence), full.weighted_total());
         }
     }
     checkpoint(*this, true);
@@ -404,7 +420,7 @@ Result Designer::optimize_tubes_impl(Local const &env) {
  *
  * @param env compute resources allowing for potential parallel execution
  */
-void Designer::time_analysis(Local const &env) {
+void Designer::time_analysis(Env const &env) {
     for (auto &c : design.complexes)
         c.decomposition.apply_recursive([](auto &node) {
             node.cache = ComplexNode::Cache();
@@ -436,7 +452,7 @@ void Designer::time_analysis(Local const &env) {
  * @param seq the starting sequence to pass on to leaf optimization
  * @return the best discovered root-level, focused ensemble defect estimate
  */
-Result Designer::optimize_forest(Local const &env, Sequence seq) {
+Result Designer::optimize_forest(Env const &env, Sequence seq) {
     // archive.reset(archive.forest); archive.resize_forest(max_depth + 1);
 
     best.reset(best.forest); best.resize_forest(max_depth + 1);
@@ -464,18 +480,20 @@ Result Designer::optimize_forest(Local const &env, Sequence seq) {
 
             if (cur_result.weighted_total() < at(best.forest, depth).weighted_total()) {
                 at(best.forest, depth) = cur_result;
-                logs.log("basic", time_elapsed(), "best merge", depth, Psi.num_active(), Psi.num_inactive(), design.sequences.json_domains(cur_result.sequence), LAZY(cur_result.weighted_total()));
+                if (logs.basic) logs.basic(time_elapsed(), "best merge", depth, Psi.num_active(), Psi.num_inactive(), 
+                    design.sequences.json_domains(cur_result.sequence), cur_result.weighted_total());
             }
 
             auto f_d_stop = parameters.f_stop * pow(parameters.f_stringent, depth);
             auto child_defect = at(best.forest, depth + 1).weighted_total();
 
-            if (cur_result.weighted_total() > std::max(f_d_stop, child_defect / parameters.f_stringent)) {
-                checkpoint(*this, false);
-                logs.log("basic", time_elapsed(), "merge unsuccessful", depth, Psi.num_active(), Psi.num_inactive(), design.sequences.json_domains(cur_result.sequence), LAZY(cur_result.weighted_total()));
+            if (cur_result.weighted_total() > std::max(f_d_stop, child_defect / parameters.f_stringent) 
+                && !checkpoint(*this, false)) {
+                if (logs.basic) logs.basic(time_elapsed(), "merge unsuccessful", depth, Psi.num_active(), Psi.num_inactive(), 
+                    design.sequences.json_domains(cur_result.sequence), cur_result.weighted_total());
 
                 merge_successful = false;
-                redecompose(depth, at(best.forest, depth + 1).sequence);
+                redecompose(env, depth, at(best.forest, depth + 1).sequence);
 
                 /* log decomposition failure at current level */
                 if (len(stats.num_redecompositions) <= max_depth) stats.num_redecompositions.resize(max_depth + 1, 0);
@@ -490,7 +508,8 @@ Result Designer::optimize_forest(Local const &env, Sequence seq) {
                 at(best.forest, max_depth).sequence = design.sequence();
                 known_bads.emplace(design.sequence());
             } else {
-                logs.log("basic", time_elapsed(), "merge successful", depth, Psi.num_active(), Psi.num_inactive(), design.sequences.json_domains(cur_result.sequence), LAZY(cur_result.weighted_total()));
+                if (logs.basic) logs.basic(time_elapsed(), "merge successful", depth, Psi.num_active(), Psi.num_inactive(), 
+                    design.sequences.json_domains(cur_result.sequence), cur_result.weighted_total());
             }
 
             --depth;
@@ -509,7 +528,7 @@ Result Designer::optimize_forest(Local const &env, Sequence seq) {
  * @param seq the starting sequence to pass on to leaf mutation
  * @return the best leaf-level defect estimate and sequence
  */
-Result Designer::optimize_leaves(Local const &env, Sequence seq) {
+Result Designer::optimize_leaves(Env const &env, Sequence seq) {
     // archive.reset(archive.leaf_opt);
     best.leaf_opt = mutate_leaves(env, seq);
     // auto blah = archive.leaf_opt.merge(archive.leaf_mut);
@@ -518,7 +537,7 @@ Result Designer::optimize_leaves(Local const &env, Sequence seq) {
     uint m_reopt = 0;
     auto f_D_stop = parameters.f_stop * pow(parameters.f_stringent, max_depth);
     while (best.leaf_opt.weighted_total() > f_D_stop && m_reopt < parameters.M_reopt) {
-        checkpoint(*this, false);
+        if (checkpoint(*this, false)) break;
         /* reseed from best sequence */
         design.set_sequence(best.leaf_opt.sequence);
         auto sampled_nucs = scalarized_sample(best.leaf_opt, parameters.M_reseed);
@@ -530,7 +549,7 @@ Result Designer::optimize_leaves(Local const &env, Sequence seq) {
         }
 
         Result temp = evaluate_objectives(env, max_depth, Psi, weights);
-        logs.log("basic", time_elapsed(), "reseeded", max_depth, Psi.num_active(), Psi.num_inactive(), design.sequences.json_domains(), LAZY(temp.weighted_total()));
+        if (logs.basic) logs.basic(time_elapsed(), "reseeded", max_depth, Psi.num_active(), Psi.num_inactive(), design.sequences.json_domains(), temp.weighted_total());
         ++stats.num_reseeds;
 
         auto cur_result = mutate_leaves(env, design.sequence());
@@ -558,7 +577,7 @@ Result Designer::optimize_leaves(Local const &env, Sequence seq) {
  * @param seq the starting sequence to pass to begin mutation from
  * @return the sequence with the best encountered leaf-level defect estimate
  */
-Result Designer::mutate_leaves(Local const &env, Sequence seq) {
+Result Designer::mutate_leaves(Env const &env, Sequence seq) {
     // archive.reset(archive.leaf_mut);
     /**
      * \gamma_{bad} in pseudocode. Here we initialize with sequences which
@@ -586,7 +605,8 @@ Result Designer::mutate_leaves(Local const &env, Sequence seq) {
         ++m_bad;
     }
 
-    logs.log("basic", time_elapsed(), "mutation accepted", max_depth, Psi.num_active(), Psi.num_inactive(), design.sequences.json_domains(best.leaf_mut.sequence), LAZY(best.leaf_mut.weighted_total()));
+    if (logs.basic) logs.basic(time_elapsed(), "mutation accepted", max_depth, Psi.num_active(), Psi.num_inactive(), 
+        design.sequences.json_domains(best.leaf_mut.sequence), best.leaf_mut.weighted_total());
     m_bad = 0;
     auto f_D_stop = parameters.f_stop * pow(parameters.f_stringent, max_depth);
 
@@ -595,7 +615,7 @@ Result Designer::mutate_leaves(Local const &env, Sequence seq) {
     vec<real> defects = {best.leaf_mut.weighted_total()};
 
     while (best.leaf_mut.weighted_total() > f_D_stop && m_bad < parameters.M_bad) { // && !improvement_slowing(muts, defects)) {
-        checkpoint(*this, false);
+        if (checkpoint(*this, false)) break;
         /* mutate away from best encountered sequence */
         design.set_sequence(best.leaf_mut.sequence);
         auto sampled_nucs = scalarized_sample(best.leaf_mut);
@@ -612,7 +632,8 @@ Result Designer::mutate_leaves(Local const &env, Sequence seq) {
             ++num_muts;
             if (cur_result.weighted_total() < best.leaf_mut.weighted_total()) {
                 best.leaf_mut = cur_result;
-                logs.log("basic", time_elapsed(), "mutation accepted", max_depth, Psi.num_active(), Psi.num_inactive(), design.sequences.json_domains(best.leaf_mut.sequence), LAZY(cur_result.weighted_total()));
+                if (logs.basic) logs.basic(time_elapsed(), "mutation accepted", max_depth, Psi.num_active(), Psi.num_inactive(), 
+                    design.sequences.json_domains(best.leaf_mut.sequence), cur_result.weighted_total());
 
                 muts.emplace_back(num_muts);
                 defects.emplace_back(cur_result.weighted_total());
@@ -623,7 +644,8 @@ Result Designer::mutate_leaves(Local const &env, Sequence seq) {
                 m_bad = 0;
 
             } else {
-                logs.log("basic", time_elapsed(), "mutation rejected", max_depth, Psi.num_active(), Psi.num_inactive(), design.sequences.json_domains(), LAZY(cur_result.weighted_total()));
+                if (logs.basic) logs.basic(time_elapsed(), "mutation rejected", max_depth, Psi.num_active(), Psi.num_inactive(), 
+                    design.sequences.json_domains(), cur_result.weighted_total());
                 bad_seqs.emplace(design.sequence());
                 ++m_bad;
             }
@@ -633,7 +655,7 @@ Result Designer::mutate_leaves(Local const &env, Sequence seq) {
     return best.leaf_mut;
 }
 
-Sequence Designer::best_sequence(Local const &env) {
+Sequence Designer::best_sequence(Env const &env) {
     /* save initial sequence state */
     auto temp = design.sequence();
 
@@ -677,17 +699,17 @@ bool Designer::improvement_slowing(vec<uint> const &x, vec<real> const &y) {
 }
 
 
-Result Designer::evaluate_objectives(Local const &env, uint depth, EnsemblePartition const &part, Weights const &weights) {
+Result Designer::evaluate_objectives(Env const &env, uint depth, EnsemblePartition const &part, Weights const &weights) {
     auto seq = design.sequence();
     vec<Defect> defects;
     zip(objectives, [&](auto const &o) {
         defects.emplace_back(o.evaluate(env, design, depth, part, weights, obs));
     });
-    return {seq, defects, weights.objective_weights};
+    return Result(seq, defects, weights.objective_weights);
 }
 
 
-Result Designer::reevaluate_objectives(Local const &env, Result const &res, uint depth, EnsemblePartition const &part, Weights const &weights) {
+Result Designer::reevaluate_objectives(Env const &env, Result const &res, uint depth, EnsemblePartition const &part, Weights const &weights) {
     /* store sequence state */
     auto seq = design.sequence();
 
@@ -698,8 +720,8 @@ Result Designer::reevaluate_objectives(Local const &env, Result const &res, uint
         auto defect = bool(reeval_defect) ? value_of(reeval_defect) : orig_defect;
         defects.emplace_back(defect);
     });
-    Result ret{res.sequence, std::move(defects), weights.objective_weights};
-    if (depth == 0 && part.all_active()) ret.full_evaluation(*this);
+    Result ret(res.sequence, std::move(defects), weights.objective_weights);
+    if (depth == 0 && part.all_active()) ret.full_evaluation(env, *this);
 
     /* restore sequence state */
     design.set_sequence(seq);
@@ -707,7 +729,5 @@ Result Designer::reevaluate_objectives(Local const &env, Result const &res, uint
     return ret;
 }
 
-
-}
 
 }

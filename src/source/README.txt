@@ -1,14 +1,15 @@
 README file for NUPACK 4.0
-Copyright (c) 2007-2020. California Institute of Technology. All Rights Reserved.
+Copyright (c) 2003-2022. California Institute of Technology. All Rights Reserved.
 
-See LICENSE.txt file.
+See LICENSE.txt file
 
 See NUPACK User Guide for installation instructions:
-https://piercelab-caltech.github.io/nupack-docs/
+https://docs.nupack.org
+
+Technical support: support@nupack.org
 
 This source folder contains two text files:
-
-- LICENSE.txt: The NUPACK Software License Agreement for Non-Commercial Academic Use and Redistribution
+- LICENSE.txt: NUPACK Software License Agreement
 - CMakeLists.txt: The main configuration script for the project (using CMake)
 
 and several sub-directories:
@@ -20,6 +21,6 @@ and several sub-directories:
 - package: Miscellaneous files used to build the Python package
 - parameters: Free energy model parameter files
 - python: Python files for the NUPACK Python module
+- solver: Include and source C++ (*.h and *.cc) files for equilibrium concentration solver
 - source: Source C++ (*.cc) directories and files
 - test: Python test files
-

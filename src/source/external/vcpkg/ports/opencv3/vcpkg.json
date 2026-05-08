@@ -1,20 +1,52 @@
 {
   "name": "opencv3",
-  "version": "3.4.13",
-  "description": "computer vision library",
+  "version": "3.4.20",
+  "description": "Open Source Computer Vision Library",
   "homepage": "https://github.com/opencv/opencv",
+  "license": "BSD-3-Clause",
   "dependencies": [
+    {
+      "name": "vcpkg-cmake",
+      "host": true
+    },
+    {
+      "name": "vcpkg-cmake-config",
+      "host": true
+    },
+    {
+      "name": "vcpkg-get-python-packages",
+      "host": true
+    },
     "zlib"
   ],
   "default-features": [
-    "dnn",
+    {
+      "name": "dnn",
+      "platform": "!android"
+    },
+    {
+      "name": "gapi",
+      "platform": "!uwp"
+    },
+    {
+      "name": "gtk",
+      "platform": "linux"
+    },
     "jpeg",
+    {
+      "name": "msmf",
+      "platform": "windows & !uwp & !mingw"
+    },
     "png",
     "quirc",
     "tiff",
     "webp"
   ],
   "features": {
+    "bgsegm": {
+      "description": "opencv_bgsegm module",
+      "supports": "!arm"
+    },
     "contrib": {
       "description": "opencv_contrib module",
       "dependencies": [
@@ -26,7 +58,8 @@
           "name": "opencv3",
           "features": [
             "dnn"
-          ]
+          ],
+          "platform": "!android"
         },
         {
           "name": "tesseract",
@@ -34,21 +67,15 @@
         }
       ]
     },
-    "cuda": {
-      "description": "CUDA support for opencv",
+    "dc1394": {
+      "description": "Dc1394 support for opencv",
       "dependencies": [
-        "cuda",
-        "cudnn",
-        {
-          "name": "opencv3",
-          "features": [
-            "contrib"
-          ]
-        }
+        "libdc1394"
       ]
     },
     "dnn": {
       "description": "Enable dnn module",
+      "supports": "!android",
       "dependencies": [
         {
           "name": "opencv3",
@@ -64,22 +91,40 @@
         "eigen3"
       ]
     },
-    "ffmpeg": {
-      "description": "ffmpeg support for opencv",
-      "dependencies": [
-        "ffmpeg"
-      ]
-    },
     "flann": {
       "description": "opencv_flann module",
       "dependencies": [
         "protobuf"
       ]
     },
+    "freetype": {
+      "description": "Freetype support for opencv",
+      "dependencies": [
+        "freetype",
+        "harfbuzz"
+      ]
+    },
+    "gapi": {
+      "description": "Enable gapi module",
+      "supports": "!uwp"
+    },
     "gdcm": {
       "description": "GDCM support for opencv",
       "dependencies": [
         "gdcm"
+      ]
+    },
+    "gstreamer": {
+      "description": "gstreamer support for opencv",
+      "dependencies": [
+        "gstreamer"
+      ]
+    },
+    "gtk": {
+      "description": "GTK support for opencv",
+      "supports": "linux",
+      "dependencies": [
+        "gtk3"
       ]
     },
     "halide": {
@@ -99,7 +144,8 @@
       ]
     },
     "ipp": {
-      "description": "Enable Intel Integrated Performance Primitives"
+      "description": "Enable Intel Integrated Performance Primitives",
+      "supports": "(osx & x64) | (windows & (x64 | x86)) | (linux & (x64 | x86))"
     },
     "jasper": {
       "description": "JPEG 2000 support for opencv",
@@ -113,12 +159,13 @@
         "libjpeg-turbo"
       ]
     },
-    "lapack": {
-      "description": "LAPACK support for opencv",
-      "dependencies": [
-        "blas",
-        "lapack"
-      ]
+    "line-descriptor": {
+      "description": "opencv_line_descriptor module",
+      "supports": "!arm"
+    },
+    "msmf": {
+      "description": "Microsoft Media Foundation support for opencv",
+      "supports": "windows & !uwp & !mingw"
     },
     "nonfree": {
       "description": "allow nonfree and unredistributable libraries"
@@ -135,12 +182,18 @@
         "opengl"
       ]
     },
+    "openmp": {
+      "description": "Enable openmp support for opencv",
+      "supports": "!osx"
+    },
     "ovis": {
       "description": "opencv_ovis module",
+      "supports": "!(windows & static) & !android",
       "dependencies": [
         "ogre",
         {
           "name": "opencv3",
+          "default-features": false,
           "features": [
             "contrib"
           ]
@@ -153,6 +206,25 @@
         "libpng"
       ]
     },
+    "python": {
+      "description": "Python wrapper support for opencv",
+      "dependencies": [
+        {
+          "name": "opencv3",
+          "default-features": false,
+          "features": [
+            "flann"
+          ]
+        },
+        {
+          "name": "python3",
+          "default-features": false,
+          "features": [
+            "extensions"
+          ]
+        }
+      ]
+    },
     "qt": {
       "description": "Qt GUI support for opencv",
       "dependencies": [
@@ -162,29 +234,54 @@
         }
       ]
     },
-    "quirc": {
-      "description": "Enable QR code module",
+    "quality": {
+      "description": "Build opencv_quality module",
+      "supports": "!uwp",
       "dependencies": [
-        "quirc"
-      ]
-    },
-    "sfm": {
-      "description": "opencv_sfm module",
-      "dependencies": [
-        "ceres",
-        "eigen3",
-        "gflags",
-        "glog",
         {
           "name": "opencv3",
+          "default-features": false,
           "features": [
             "contrib"
           ]
         }
       ]
     },
+    "quirc": {
+      "description": "Enable QR code module",
+      "dependencies": [
+        "quirc"
+      ]
+    },
+    "salicency": {
+      "description": "opencv_salicency module",
+      "supports": "!arm"
+    },
+    "sfm": {
+      "description": "opencv_sfm module",
+      "dependencies": [
+        "ceres",
+        "gflags",
+        "glog",
+        {
+          "name": "opencv3",
+          "default-features": false,
+          "features": [
+            "contrib"
+          ]
+        },
+        {
+          "name": "opencv3",
+          "default-features": false,
+          "features": [
+            "eigen"
+          ]
+        }
+      ]
+    },
     "tbb": {
       "description": "Enable Intel Threading Building Blocks",
+      "supports": "!static",
       "dependencies": [
         "tbb"
       ]
@@ -192,13 +289,25 @@
     "tiff": {
       "description": "TIFF support for opencv",
       "dependencies": [
-        "tiff"
+        {
+          "name": "tiff",
+          "default-features": false
+        }
       ]
     },
     "vtk": {
       "description": "vtk support for opencv",
       "dependencies": [
-        "vtk"
+        {
+          "name": "opencv3",
+          "features": [
+            "contrib"
+          ]
+        },
+        {
+          "name": "vtk",
+          "default-features": false
+        }
       ]
     },
     "webp": {

@@ -9,23 +9,25 @@
 #include "../iteration/Search.h"
 #include "../iteration/View.h"
 #include "../iteration/Patterns.h"
+#include "../types/IO.h"
 
 namespace nupack {
 
 /******************************************************************************************/
 
-struct SingleStrand : False {};
-struct MultiStrand : True {};
+struct SingleStrand : std::false_type {};
+struct MultiStrand : std::true_type {};
 
 /******************************************************************************************/
 
-template <class V, NUPACK_IF(is_same<value_type_of<V>, Base>)>
-string make_string(V const &v) {
-    string s;
-    s.reserve(len(s));
-    for (auto b : v) s.push_back(b.letter());
-    return s;
-}
+using Subsequence = View<Base const *>;
+using Subdomain = View<Wildcard const *>;
+
+string raw_sequence_string(Subsequence, std::size_t n=0);
+string raw_domain_string(Subdomain, std::size_t n=0);
+
+inline std::ostream& operator<<(std::ostream &os, Subsequence const &s) {return os << raw_sequence_string(s);}
+inline std::ostream& operator<<(std::ostream &os, Subdomain const &s) {return os << raw_domain_string(s);}
 
 /******************************************************************************************/
 
@@ -33,119 +35,200 @@ string make_string(V const &v) {
 using BaseIter = Base const *;
 static_assert(is_dumb_ptr<BaseIter>, "");
 
-using Subsequence = View<Base const *>;
+/******************************************************************************************/
+
+template <class T>
+struct SequenceData : CompareByKey<SequenceData<T>> {
+    using iterator = T const*;
+    using value_type = T;
+    using const_iterator = T const*;
+
+    using difference_type = std::int32_t;
+    using size_type = std::uint32_t;
+    using ID = std::int32_t;
+
+    std::shared_ptr<T const> ptr;
+    std::uint32_t length = 0;
+    ID id = 0;
+
+    static std::shared_ptr<T> allocate(std::uint32_t n) {return std::shared_ptr<T>(new T[n], [](T *t) {delete[] t;});}
+
+    SequenceData() = default;
+    void clear() {ptr.reset(); length = 0; id = 0;}
+
+    template <class F>
+    SequenceData(size_type n, F &&f, ID i=0) : length(n), id(i) {
+        auto p = allocate(length);
+        f(p.get(), n);
+        ptr = std::move(p);
+    }
+
+    template <class V, NUPACK_IF(!std::is_base_of_v<SequenceData, V> && std::is_convertible_v<value_type_of<V>, T>)>
+    SequenceData(V const &v, ID i=0) : length(std::size(v)), id(i) {
+        auto p = allocate(length);
+        std::copy(std::begin(v), std::end(v), p.get());
+        ptr = std::move(p);
+    }
+
+    SequenceData(SequenceData const &) = default;
+    SequenceData& operator=(SequenceData const &) = default;
+
+    SequenceData(SequenceData &&s) noexcept
+        : ptr(std::move(s.ptr)), length(std::exchange(s.length, 0)), id(std::exchange(s.id, 0)) {}
+
+    SequenceData& operator=(SequenceData &&s) noexcept {
+        ptr = std::move(s.ptr);
+        length = std::exchange(s.length, 0);
+        id = std::exchange(s.id, 0);
+        return *this;
+    }
+
+    T const* data() const {return ptr.get();}
+    std::uint32_t size() const {return length;}
+
+    bool empty() const {return size() == 0;}
+    auto begin() const noexcept {return data();}
+    auto end() const noexcept {return data() + size();}
+
+    T const &operator[](size_type i) const noexcept {return begin()[i];}
+
+    T const &front() const noexcept {return *begin();}
+    T const &back() const noexcept {return *std::prev(end());}
+
+    void slice(std::size_t start, std::size_t stop) noexcept {
+        T const *data = ptr.get() + start;
+        ptr = std::shared_ptr<T const>(std::move(ptr), data);
+        length = stop - start;
+    }
+
+    void pop_back() noexcept {slice(0, length-1);}
+    void pop_front() noexcept {slice(1, length);}
+
+    template <class It>
+    void insert(iterator i, It b, It e) {
+        if (b == e) return;
+        auto const n = std::distance(b, e);
+        auto p = allocate(length + n);
+        auto it = std::copy(this->begin(), i, p.get());
+        it = std::copy(b, e, it);
+        std::copy(i, this->end(), it);
+        ptr = std::move(p);
+        length += n;
+    }
+
+    auto compare_key() const noexcept {return std::make_pair(id, view(*this));}
+};
 
 /******************************************************************************************/
 
-struct Sequence : public small_vec<Base, 32> {
-    using base_type = small_vec<Base, 32>;
-    Sequence() = default;
-
+// Immutable sequence
+struct Sequence : SequenceData<Base> {
+    using base_type = SequenceData<Base>;
     using base_type::base_type;
 
-    template <class V, NUPACK_IF(is_same<value_type_of<V>, Base>)>
-    explicit Sequence(V const &v) : base_type(begin_of(v), end_of(v)) {}
+    Sequence & operator+=(Subsequence const &);
+    friend Sequence operator+(Sequence a, Subsequence const &b) {a += b; return a;}
 
-    explicit Sequence(string_view letters);
-
-    Sequence(iseq n, char b) : base_type(n, Base(b)) {}
-
-    friend std::ostream & operator<<(std::ostream &os, Sequence const &s) {
-        for (auto c : s) os << c.letter();
-        return os;
-    }
-
-    string str() const {return make_string(static_cast<base_type const &>(*this));}
-    explicit operator string() const {return str();}
-
-    auto save_repr() const {return str();}
-    void load_repr(string const &s) {*this = Sequence(s);}
-
-    operator Subsequence() const & {return {base_type::data(), base_type::data() + base_type::size()};}
+    std::string save_repr() const {return raw_sequence_string(*this, 3);}
+    void load_repr(std::string_view);
 };
 
-/******************************************************************************************/
+static_assert(std::is_convertible_v<Subsequence, Sequence>);
 
-using SubsequenceList = small_vec<Subsequence, 8>;
-using SequenceList = small_vec<Sequence, 4>;
+Sequence operator "" _4(char const *, std::size_t);
 
-/******************************************************************************************/
-
-template <class Out=small_vec<bool>, class S=Sequence>
-auto one_hot_sequence(S const &sequence) {
-    Out out(CanonicalBases.size() * len(sequence));
-    auto it = begin_of(out);
-    for (auto &&c : sequence) for (auto b : CanonicalBases) it++ == b;
-    return out;
+template <class O=Sequence, class V, class ...Ts>
+O join_sequences(V const &v, Ts &&...ts) {
+    return O(sum(v, len), [&](auto ptr, Ignore) {
+        for (auto const &s : v) ptr = std::copy(s.begin(), s.end(), ptr);
+    }, fw<Ts>(ts)...);
 }
 
 /******************************************************************************************/
 
-NUPACK_UNARY_FUNCTOR(all_determined, all_of(Sequence(t), is_determined));
-NUPACK_UNARY_FUNCTOR(has_wildcard, any_of(Sequence(t), is_wildcard));
+struct Domain : SequenceData<Wildcard> {
+    using base_type = SequenceData<Wildcard>;
+    using base_type::base_type;
 
-NUPACK_BINARY_FUNCTOR(is_sequence_specialization, equal_ranges(t, u, is_base_specialization));
+    Domain & operator+=(Subdomain const &);
+    friend Domain operator+(Domain a, Subdomain const &b) {a += b; return a;}
+
+    template <class V>
+    static Domain from_sequence(V const &v) {return Domain(indirect_view(v, Wildcard::from_base));}
+
+    std::string save_repr() const {return raw_domain_string(*this, 3);}
+    void load_repr(std::string_view);
+};
+
+static_assert(std::is_convertible_v<Subdomain, Domain>);
 
 /******************************************************************************************/
 
-// Basically the same as Sequence but cannot contain null bases or wild cards
-struct Strand : Sequence {
-    using base_type = Sequence;
-
-    Strand() = default;
-
-    // Forwarded constructor and then remove null bases
-    template <class ...Ts, std::enable_if_t<can_construct<Sequence, Ts &&...>, int> = 0>
-    Strand(Ts &&...ts) : Sequence(std::forward<Ts>(ts)...) {
-        this->erase(std::remove(this->begin(), this->end(), Base('_')), this->end());
-        NUPACK_ASSERT(!has_wildcard(*this), Sequence(*this), "Strand may not contain wildcards");
+struct SeqDistance {
+    template <class A, class B>
+    constexpr std::size_t operator()(A const &a, B const &b) const noexcept {
+        auto const min = std::min(std::size(a), std::size(b));
+        auto const max = std::max(std::size(a), std::size(b));
+        return max - std::inner_product(std::begin(a), std::begin(a) + min,
+            std::begin(b), std::size_t(0), std::plus<std::size_t>(), are_compatible);
     }
 };
 
-using StrandList = small_vec<Strand, 4>;
+static constexpr SeqDistance seq_distance{};
 
 /******************************************************************************************/
 
-template <class RNG=decltype(StaticRNG) &>
-Sequence sample(Sequence s, RNG &&rng=StaticRNG) {
-    for (auto &b : s) b = b.sample(rng);
-    return s;
-}
-
-Sequence reverse_complement(Sequence seq) noexcept;
-Sequence reverse_wobble_complement(Sequence seq) noexcept;
-
-inline bool is_palindromic(Sequence const &seq) {
-    return seq == reverse_complement(seq);
-}
-
-template <class RNG=decltype(StaticRNG) &>
-Sequence random_sequence(iseq n, real gc=0.5, RNG &&gen=StaticRNG) {
-    auto dist = Base::distribution(gc);
-    Sequence out; out.reserve(n);
-    for (iseq i=0; i != n; ++i) out.push_back(Base::from_index(dist(gen)));
-    return out;
-}
-
-template <class Out=StrandList, class RNG=decltype(StaticRNG) &>
-Out random_sequences(iseq m, iseq n, real gc=0.5, RNG &&gen=StaticRNG) {
-    auto dist = Base::distribution(gc);
-    Out out(m);
-    for (auto o = begin_of(out); o != end_of(out); ++o) {
-        o->reserve(n);
-        for (iseq i=0; i != n; ++i) o->push_back(Base::from_index(dist(gen)));
-    }
-    return out;
-}
+using DomainList = vec<Domain, 4>;
+using SubsequenceList = vec<Subsequence, 8>;
+using SequenceList = vec<Sequence, 4>;
 
 /******************************************************************************************/
 
-template <> struct memory::impl<Sequence> {
-    auto operator()(Sequence const &s) const {return len(s) * sizeof(Sequence::value_type);}
-    void erase(Sequence &s) {Sequence s_; swap(s, s_);}
+template <class V, NUPACK_IF(is_same<value_type_of<V>, Base, Wildcard>)>
+std::size_t nt(V const &v) {return len(v);}
+
+template <class V, NUPACK_IF(is_same<value_type_of<value_type_of<V>>, Base, Wildcard>)>
+std::size_t nt(V const &v) {return sum(v, len);}
+
+template <class V, NUPACK_IF(is_same<value_type_of<value_type_of<V>>, Base, Wildcard>)>
+std::size_t n_strands(V const &v) {return len(v);}
+
+// template <class Out=vec<bool>, class S=Sequence>
+// auto one_hot_sequence(S const &sequence);
+ // {
+ //    Out out(Base::all().size() * len(sequence));
+ //    auto it = begin_of(out);
+ //    for (auto &&c : sequence) for (auto b : Base::all()) it++ == b;
+ //    return out;
+// }
+
+/******************************************************************************************/
+
+// template <class RNG=decltype(StaticRNG) &>
+// Sequence sample(Sequence s, RNG &&rng=StaticRNG);
+// {
+//     for (auto &b : s) b = b.sample(rng);
+//     return s;
+// }
+
+// template <class V>
+// inline bool is_palindromic(V const &seq) {return seq == seq.reverse_complement();}
+
+// template <class RNG=decltype(StaticRNG) &>
+// Sequence random_sequence(iseq n, real gc=0.5, RNG &&gen=StaticRNG) {
+//     auto dist = Base::distribution(gc);
+//     Sequence out; out.reserve(n);
+//     for (iseq i=0; i != n; ++i) out.push_back(Base::from_index(dist(gen)));
+//     return out;
+// }
+
+/******************************************************************************************/
+
+template <class T>
+struct memory::impl<T, std::enable_if_t<is_same<T, Sequence, Domain>>> {
+    auto operator()(T const &s) const {return sizeof(T) + sizeof(typename T::value_type) * s.size() / s.ptr.use_count();}
+    void erase(T &s) {T s_; swap(s, s_);}
 };
-
-template <> struct memory::impl<Strand> : memory::impl<Sequence> {};
 
 /******************************************************************************************/
 
@@ -157,26 +240,14 @@ template <class V>
 Nick find_nick(V const &v) {
     auto b = std::begin(v);
     for (Nick i = 0; b != std::end(v); ++b, ++i)
-        if (front(*b) == Base('_')) return i;
+        if (front(*b) == Base::null()) return i;
     return NoNick;
 }
 
 /******************************************************************************************/
 
-/// Convert multiple strings e.g. ["ACTGTA", "ACTGAT"] into a vector of strands
-template <class V=SequenceList, class S=vec<string>, NUPACK_IF(!can_construct<string_view, S>)>
-V to_sequences(S const &strs) {
-    return vmap<V>(strs, [](auto const &s) {return value_type_of<V>(s);});
-}
-
 /// Convert a single string e.g. "ACTGTA+ACTGAT" into a vector of strings
 vec<string> split_sequence_string(string_view s);
-
-/// Convert a single string e.g. "ACTGTA+ACTGAT" into a vector of strands
-template <class V=SequenceList>
-V to_sequences(string_view s) {
-    return vmap<V>(split_sequence_string(s), [](auto const &s) {return value_type_of<V>(s);});
-}
 
 /******************************************************************************************/
 
@@ -237,7 +308,7 @@ template <class V> std::pair<V, V> get_split_seqs(V const &pseqs, V const &kseqs
 
 using Edge = int;
 static constexpr Edge Ether = -1;
-using EdgeList = small_vec<Edge>;
+using EdgeList = vec<Edge>;
 
 /******************************************************************************************/
 
@@ -245,10 +316,9 @@ using EdgeList = small_vec<Edge>;
 
 namespace std {
     template <> struct hash<nupack::Sequence> {
-        size_t operator()(nupack::Sequence const &s) const;
+        size_t operator()(nupack::Sequence const &s) const noexcept;
     };
-
-    template <> struct hash<nupack::Strand> {
-        size_t operator()(nupack::Strand const &s) const;
+    template <> struct hash<nupack::Domain> {
+        size_t operator()(nupack::Domain const &s) const noexcept;
     };
 }

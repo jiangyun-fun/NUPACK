@@ -3,12 +3,13 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO boostorg/wave
-    REF boost-1.75.0
-    SHA512 16d26051a92b6902e9729473802027ff6f9f301593fff7ab72c1d6ad09325e876d2acaef766bfc82befbe7e720f8d5b3036c6254a3d63181dca1625fdbfb4b2f
+    REF boost-${VERSION}
+    SHA512 18886d35565e3f0fce0c0756b9c5d79a842fb391b65aab9dd698b1c93231c128df3ffc3b16f5f6f32fba8d46e280a2046465072a33e850ae79fc92b756923d9a
     HEAD_REF master
 )
 
-include(${CURRENT_INSTALLED_DIR}/share/boost-build/boost-modular-build.cmake)
-boost_modular_build(SOURCE_PATH ${SOURCE_PATH})
-include(${CURRENT_INSTALLED_DIR}/share/boost-vcpkg-helpers/boost-modular-headers.cmake)
-boost_modular_headers(SOURCE_PATH ${SOURCE_PATH})
+set(FEATURE_OPTIONS "")
+boost_configure_and_install(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS ${FEATURE_OPTIONS}
+)

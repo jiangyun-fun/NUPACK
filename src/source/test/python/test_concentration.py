@@ -1,6 +1,8 @@
 import nupack as nu
 import zlib, numpy as np, json, base64
 
+dump = lambda *args: [str(a) for a in args]
+
 def test_convergence_for_design_cases(data=None):
     data = json.loads(zlib.decompress(base64.b64decode(_DATA))) if data is None else data
 
@@ -8,7 +10,7 @@ def test_convergence_for_design_cases(data=None):
         A, g, x0 = [np.array(d[k], dtype=np.float64) for k in 'A g x0'.split()] # ignore x
         logq = -g
         out = nu.concentration.solve(A, logb=np.log(x0 @ A), logq=logq, options=nu.concentration.Options(orthogonalize=False))
-        print(out.iters, out.solution @ A, x0 @ A, out.error, out.objective)
+        dump(out.iters, out.solution @ A, x0 @ A, out.error, out.objective)
         assert out.converged
 
 

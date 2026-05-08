@@ -1,57 +1,40 @@
-vcpkg_fail_port_install(ON_TARGET "uwp")
-
-vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
-
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO malaterre/GDCM
-    REF c0824c0ae66e9f9e3c8bddba8b65238c1c28481d # v3.0.7
-    SHA512 1889f18f7164e1395e2cf5fe29b6ccd615f9a31433d1a7bda19cac472b20bc52018ef45bd9d9ca72ecb248c9fd5d895b94bfd111157693f70e0b90cf7b582edd
+    REF "v${VERSION}"
+    SHA512 2fe28444cee171a536d63f26c1ad7308a03b946e79dc8b7d648b5c7e6f4a8f52c0c32ec9cf463d95b876db31becc81541638b97fc7f15b79ae04de5988d6941e
     HEAD_REF master
     PATCHES
-        use-openjpeg-config.patch
-        fix-share-path.patch
-        Fix-Cmake_DIR.patch
+        copyright.diff
+        include-no-namespace.diff
+        no-absolute-paths.diff
+        prefer-config.diff
 )
 
-file(REMOVE ${SOURCE_PATH}/CMake/FindOpenJPEG.cmake)
+string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "dynamic" BUILD_SHARED_LIBS)
 
-if(VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")
-  set(VCPKG_BUILD_SHARED_LIBS ON)
-else()
-  set(VCPKG_BUILD_SHARED_LIBS OFF)
-endif()
-
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
         -DGDCM_BUILD_DOCBOOK_MANPAGES=OFF
-        -DGDCM_BUILD_SHARED_LIBS=${VCPKG_BUILD_SHARED_LIBS}
-        -DGDCM_INSTALL_INCLUDE_DIR=include
-        -DGDCM_USE_SYSTEM_EXPAT=ON
-        -DGDCM_USE_SYSTEM_ZLIB=ON
-        -DGDCM_USE_SYSTEM_OPENJPEG=ON
+        -DGDCM_BUILD_SHARED_LIBS=${BUILD_SHARED_LIBS}
         -DGDCM_BUILD_TESTING=OFF
+        -DGDCM_INSTALL_DATA_DIR=share/${PORT}
+        -DGDCM_INSTALL_DOC_DIR=share/${PORT}/doc
+        -DGDCM_INSTALL_INCLUDE_DIR=include
+        -DGDCM_INSTALL_PACKAGE_DIR=share/${PORT}
+        -DGDCM_USE_SYSTEM_EXPAT=ON
+        -DGDCM_USE_SYSTEM_OPENJPEG=ON
+        -DGDCM_USE_SYSTEM_ZLIB=ON
 )
 
-vcpkg_install_cmake()
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/gdcm)
+vcpkg_cmake_install()
+vcpkg_cmake_config_fixup()
 vcpkg_copy_pdbs()
 
 file(REMOVE_RECURSE
-    ${CURRENT_PACKAGES_DIR}/debug/include
-    ${CURRENT_PACKAGES_DIR}/debug/share
+    "${CURRENT_PACKAGES_DIR}/debug/include"
+    "${CURRENT_PACKAGES_DIR}/debug/share"
 )
 
-vcpkg_replace_string(${CURRENT_PACKAGES_DIR}/share/gdcm/GDCMTargets.cmake
-    "set(CMAKE_IMPORT_FILE_VERSION 1)"
-    "set(CMAKE_IMPORT_FILE_VERSION 1)
-    find_package(OpenJPEG QUIET)"
-)
-
-if(VCPKG_LIBRARY_LINKAGE STREQUAL "static")
-    file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/bin ${CURRENT_PACKAGES_DIR}/debug/bin)
-endif()
-
-file(INSTALL ${SOURCE_PATH}/Copyright.txt DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${CURRENT_BUILDTREES_DIR}/${TARGET_TRIPLET}-rel/Copyright.txt")

@@ -16,7 +16,7 @@ namespace nupack {
 struct LoopStackingState {
     enum Stack : std::uint_fast8_t {None, LeftDangle, RightDangle, BothDangle, LeftStack, RightStack, Disabled};
 
-    small_vec<Stack> state;
+    vec<Stack> state;
 
     LoopStackingState(std::size_t n, int nick) : state(n, None) {
         if (nick >= 0) state[nick] = Disabled;
@@ -33,8 +33,8 @@ struct LoopStackingState {
                 }
                 case RightStack: {
                     auto tmp = f.add_stack(v, next(v, i));
-                    NUPACK_DREQUIRE(state[i], ==, None, i, state);
-                    NUPACK_DREQUIRE(state[i+1], ==, None, i, state);
+                    NUPACK_QUICK_REQUIRE(state[i], ==, None, i, state);
+                    NUPACK_QUICK_REQUIRE(state[i+1], ==, None, i, state);
                     state[i] = RightStack; state[i+1] = Disabled;
                     enumerate(v, f, i+1);
                     state[i] = None; state[i+1] = None;
@@ -42,10 +42,10 @@ struct LoopStackingState {
                     return;
                 }
                 case LeftStack: {
-                    NUPACK_DREQUIRE(i, ==, 0, v, s);
+                    NUPACK_QUICK_REQUIRE(i, ==, 0, v, s);
                     auto tmp = f.add_stack(v, v.end()-1);
-                    NUPACK_DREQUIRE(state[0], ==, None, i, state);
-                    NUPACK_DREQUIRE(state.back(), ==, None, i, state);
+                    NUPACK_QUICK_REQUIRE(state[0], ==, None, i, state);
+                    NUPACK_QUICK_REQUIRE(state.back(), ==, None, i, state);
                     state[0] = LeftStack; state.back() = Disabled;
                     enumerate(v, f, i+1);
                     state[0] = None; state.back() = None;
@@ -54,7 +54,7 @@ struct LoopStackingState {
                 }
                 default: {
                     auto tmp = f.add_dangle(v, next(v, i), s);
-                    NUPACK_DREQUIRE(state[i], ==, None, i, state);
+                    NUPACK_QUICK_REQUIRE(state[i], ==, None, i, state);
                     state[i] = s;
                     enumerate(v, f, i+1);
                     state[i] = None;
@@ -65,7 +65,7 @@ struct LoopStackingState {
         };
 
         if (i == state.size()) {
-            f(static_cast<small_vec<Stack> const &>(state));
+            f(static_cast<vec<Stack> const &>(state));
         } else if (i == 0) {
             recurse(None); // no stacking
             if (state[0] == Disabled) return;
@@ -123,7 +123,7 @@ struct LoopStackingState {
         bool add_dangle(Ignore, Ignore, Ignore) {return {};}
         bool add_stack(Ignore, Ignore) {return {};}
         void remove(Ignore) {}
-        void operator()(small_vec<Stack> const &p) const {f(p);}
+        void operator()(vec<Stack> const &p) const {f(p);}
     };
 
     template <class V, class F>
@@ -159,7 +159,7 @@ struct StackingStateEnergy {
 
     template <class S>
     real add_stack(S const &s, typename S::const_iterator l) {
-        NUPACK_DREQUIRE(l->size(), ==, 2, *l, s);
+        NUPACK_QUICK_REQUIRE(l->size(), ==, 2, *l, s);
         auto const prev = cyclic_prev(s, l), next = cyclic_next(s, l);
         auto e = model.coaxial_stack_energy(back(*prev), front(*l), back(*l), front(*next));
         energy += e;
@@ -171,14 +171,14 @@ struct StackingStateEnergy {
         auto const prev = cyclic_prev(s, l);
         real e = 0;
         if (t == LoopStackingState::LeftDangle) {
-            NUPACK_DREQUIRE(prev->size(), >, 2, *prev, *l, s, t);
-            e = model.dG(dangle3, back_index(*prev, 1), back(*prev), front(*l));
+            NUPACK_QUICK_REQUIRE(prev->size(), >, 2, *prev, *l, s, t);
+            e = model.dangle3(back_index(*prev, 1), back(*prev), front(*l));
         } else if (t == LoopStackingState::RightDangle) {
-            NUPACK_DREQUIRE(l->size(), >, 2, *prev, *l, s, t);
-            e = model.dG(dangle5, back(*prev), front(*l), front(*l, 1));
+            NUPACK_QUICK_REQUIRE(l->size(), >, 2, *prev, *l, s, t);
+            e = model.dangle5(back(*prev), front(*l), front(*l, 1));
         } else if (t == LoopStackingState::BothDangle) {
-            NUPACK_DREQUIRE(prev->size(), >, 2, *prev, *l, s, t);
-            NUPACK_DREQUIRE(l->size(), >, 2, *prev, *l, s, t);
+            NUPACK_QUICK_REQUIRE(prev->size(), >, 2, *prev, *l, s, t);
+            NUPACK_QUICK_REQUIRE(l->size(), >, 2, *prev, *l, s, t);
             e = model.terminal_mismatch(back_index(*prev, 1), back(*prev), front(*l), front(*l, 1));
         }
 
@@ -218,9 +218,42 @@ inline char loop_stack_letter(LoopStackingState::Stack c) {
 
 /******************************************************************************************/
 
-string loop_stack_string(small_vec<LoopStackingState::Stack> const &v);
+string loop_stack_string(vec<LoopStackingState::Stack> const &v);
 
-string loop_stack_sequence_string(small_vec<LoopStackingState::Stack> const &v);
+string loop_stack_sequence_string(vec<LoopStackingState::Stack> const &v);
+
+/******************************************************************************************/
+
+// Calls the callback with the stacking state and energy. 
+// Stacking state is a vector where -1 indicates a base dangles to the 5' side and +1 indicates it's dangling to the 3' side (otherwise 0).
+template <class State, class Model, class F>
+void for_stacking_states_impl(State const &w, Model const &m, F &&f, vec<int> &stack, real e, uint loop) {
+    auto o = w.loops.begin() + loop;
+    for (; o != w.loops.end(); ++o) {
+        if (o->exterior() || len(o->sequences()) > 2) break;
+        else e += m.loop_energy(o->sequences(), o->nick());
+    }
+
+    if (o == w.loops.end()) {f(stack, real(e)); return;}
+    
+    auto const &v = o->sequences();
+    e += m.terminal_penalty_sum(v) + (o->nick() != Ether ? 0 : m.linear_multi_energy(v));
+    
+    enumerate_stacking_state_energies(v, o->nick(), m, [&](auto const &p, auto de) {
+        izip(p, [&](auto i, auto const &s) {
+            if (s == LoopStackingState::LeftDangle || s == LoopStackingState::BothDangle) {
+                auto it = v[i ? i-1 : v.size()-1].end()-2;
+                stack[w.sys.index(it) - 2 * w.sys.strand_of(it) - 1] = +1;
+            }
+            
+            if (s == LoopStackingState::RightDangle || s == LoopStackingState::BothDangle) {
+                auto it = v[i].begin()+1;
+                stack[w.sys.index(it) - 2 * w.sys.strand_of(it) - 1] = -1;
+            }
+        });
+        for_stacking_states_impl(w, m, f, stack, e+de, o+1 - w.loops.begin());
+    });
+}
 
 /******************************************************************************************/
 

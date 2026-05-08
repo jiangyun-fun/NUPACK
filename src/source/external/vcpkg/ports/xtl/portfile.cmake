@@ -3,23 +3,25 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO xtensor-stack/xtl
-    REF 6c017f4a81a59bd52008025a785ce745e5b7f49c # 0.6.21
-    SHA512 f007196a38da267b6f457ce587220b60686b1c23670ab03d5f0516bb3b8c7b1e5b8859d57255e96f713bfc08a46d38dd497e55afc17fa40f2b653073690093c9
+    REF "${VERSION}"
+    SHA512 07c2a68db3dbac556dbb0397e54792ddc7a3e87573bff04faa4262dc433b710392ff9c915d428f5abd1ae892ac9bc7744645e75fdb2bb2cee83c523e087c793e
     HEAD_REF master
+    PATCHES
+        fix-fixup-cmake.patch
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+set(VCPKG_BUILD_TYPE release)
+
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
         -DBUILD_TESTS=OFF
         -DDOWNLOAD_GTEST=OFF
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
 
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/${PORT})
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/xtl)
+vcpkg_fixup_pkgconfig()
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
-
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

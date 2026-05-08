@@ -3,12 +3,17 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO boostorg/math
-    REF boost-1.75.0
-    SHA512 d0b31cc55d2c0788b7376bc8be877acb30b0f23a71f83aa6df27d47fc8887542924df9f33b1d69da2befdb4ab087d6905d126ee3a8ae98a91aba0ad3c70311ee
+    REF boost-${VERSION}
+    SHA512 d89c0edac6b218140ebb5fa3c54711a3c9912038304ed03713dceb4506b1ea6f699d49bcf4ca5d1b02efe592890934a95bed88cc55e3f1d3f620723436593243
     HEAD_REF master
+    PATCHES
+        build-old-libs.patch
+        opt-random.diff
 )
 
-include(${CURRENT_INSTALLED_DIR}/share/boost-build/boost-modular-build.cmake)
-boost_modular_build(SOURCE_PATH ${SOURCE_PATH})
-include(${CURRENT_INSTALLED_DIR}/share/boost-vcpkg-helpers/boost-modular-headers.cmake)
-boost_modular_headers(SOURCE_PATH ${SOURCE_PATH})
+set(FEATURE_OPTIONS "")
+include("${CMAKE_CURRENT_LIST_DIR}/features.cmake")
+boost_configure_and_install(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS ${FEATURE_OPTIONS}
+)

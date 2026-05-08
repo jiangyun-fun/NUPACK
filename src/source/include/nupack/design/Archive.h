@@ -3,7 +3,7 @@
 #include "OutputResult.h"
 #include "Result.h"
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 struct Archive {
     uint max_size {0};
@@ -14,8 +14,8 @@ struct Archive {
 
     uint remove_dominated();
     uint remove_dominated_by(Result const &res);
-    void reevaluate(Local const &env, Designer &designer, uint depth, EnsemblePartition const &part);
-    uint update_estimates(Local const &env, Designer &designer, uint depth, EnsemblePartition const &part);
+    void reevaluate(Env const &env, Designer &designer, uint depth, EnsemblePartition const &part);
+    uint update_estimates(Env const &env, Designer &designer, uint depth, EnsemblePartition const &part);
     std::pair<uint, uint> attempt_add(Result const &res);
     bool full() const { return len(results) >= max_size; }
 
@@ -34,5 +34,4 @@ struct Archive {
 
 using ArchiveState = DesignState<Archive>;
 
-} // newdesign
-} // nupack
+} // design

@@ -5,7 +5,7 @@
 #include "Objectives.h"
 #include "Weights.h"
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 struct Designer;
 struct Result;
@@ -61,7 +61,7 @@ struct SingleResult {
     vec<real> weighted_defects;
 
     SingleResult() = default;
-    SingleResult(Designer const &, Result const &);
+    SingleResult(Env const &, Designer const &, Result const &);
 
     NUPACK_REFLECT(SingleResult, domains, strands, complexes, tubes, defects, weighted_defects);
 };
@@ -80,10 +80,10 @@ struct DesignResult {
     DesignResult() = default;
     // DesignResult(Specification const &, Designer const &, Result const &);
     // DesignResult(Specification const &spec, Designer const &designer) : DesignResult(spec, designer, designer.best.full) {}
-    DesignResult(Designer const &);
+    DesignResult(Env const &, Designer const &);
 
     NUPACK_REFLECT(DesignResult, model, parameters, stats, objectives, results, weights, success);
 };
 
 
-}}
+}

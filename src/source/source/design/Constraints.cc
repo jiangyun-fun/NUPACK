@@ -2,24 +2,16 @@
 #include <cmath>
 #include <unordered_set>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
-using custom_csp::CompConstraint;
-using custom_csp::IdentConstraint;
-using custom_csp::PatternConstraint;
-using custom_csp::WordConstraint;
-using custom_csp::MatchConstraint;
-using custom_csp::NUPACK_CS_WEAK;
-using custom_csp::NUPACK_CS_STRONG;
-using custom_csp::trinary;
 
 using namespace Gecode;
 
 using IVArray = ViewArray<Int::IntView>;
 using IV = Int::IntView;
 
-vec<int> opp_values(std::array<bool, 4> const &mask) {
-    vec<int> values;
+std::vector<int> opp_values(small_vec<bool> const &mask) {
+    std::vector<int> values;
     izip(mask, [&](auto i, auto j){
         if (!j) values.emplace_back(i);
     });
@@ -27,8 +19,8 @@ vec<int> opp_values(std::array<bool, 4> const &mask) {
 }
 
 
-vec<int> nuc_values(std::array<bool, 4> const &mask) {
-    vec<int> values;
+std::vector<int> nuc_values(small_vec<bool> const &mask) {
+    std::vector<int> values;
     izip(mask, [&](auto i, auto j){
         if (j) values.emplace_back(i);
     });
@@ -36,30 +28,17 @@ vec<int> nuc_values(std::array<bool, 4> const &mask) {
 }
 
 
-IntSet nuc_values(Base base) {
-    return IntSet(nuc_values(base.mask()));
+IntSet wildcard_values(Wildcard base) {
+    return IntSet(base.indices<std::vector<int>>());
 }
 
 
 int random_nuc(IntVar x) {
-    vec<int> choices;
+    std::vector<int> choices;
     for (IntVarValues it(x); it(); ++it) {
         choices.emplace_back(it.val());
     }
     return *random_choice(choices);
-}
-
-
-/**
- * @brief create a string by concatenating n copies of string s for each pair (s, n) in input vector
- *
- * @param condensed vector of specifications for creating a concatenated string of
- * @return A string made by concatenating each substring in condensed its paired number of times
- */
-string multiply_substrings(vec<std::pair<string, int>> const & condensed) {
-    std::stringstream ss;
-    for_each(condensed, [&](auto const &c) {for (auto i : range(c.second)) ss << c.first;});
-    return ss.str();
 }
 
 /*****************************************************************************************************/
@@ -72,10 +51,10 @@ string multiply_substrings(vec<std::pair<string, int>> const & condensed) {
  */
 struct PatternProp : public Propagator {
     IVArray xs;
-    // vec<vec<int>> pattern;
-    Sequence pattern;
+    // vec<std::vector<int>> pattern;
+    Domain pattern;
 
-    PatternProp(Home home, IVArray _xs, Sequence _pattern)
+    PatternProp(Home home, IVArray _xs, Domain _pattern)
 		: Propagator(home), xs(_xs),
         // pattern(indirect_view(_pattern, [](auto x) {return nuc_values(x.mask());})) {
         pattern(_pattern) {
@@ -83,10 +62,10 @@ struct PatternProp : public Propagator {
 	}
 
     /* optimization for preventing posting if not a problem */
-	static ExecStatus post(Home home, IVArray xs, Sequence pattern) {
+	static ExecStatus post(Home home, IVArray xs, Domain pattern) {
         /* don't post at all if pattern can't be matched based on domains */
         for (auto i : range(xs.size())) {
-            if (none_of(nuc_values(at(pattern, i).mask()), [&](auto b) {
+            if (none_of(at(pattern, i).indices(), [&](auto b) {
                 return xs[i].in(b);
             }))
                 return ES_OK;
@@ -96,7 +75,7 @@ struct PatternProp : public Propagator {
         /* return failure if all nucleotides must match pattern */
         bool all_match = true;
         for (auto i : range(xs.size())) {
-            auto poss = nuc_values(at(pattern, i).mask());
+            auto poss = at(pattern, i).indices();
 
             uint count {0};
             for (auto j : poss) count += at(xs, i).in(j);
@@ -146,9 +125,9 @@ struct PatternProp : public Propagator {
         If n - 1 in must match, and 1 in indeterminate
             use .nq on all values in the pattern for the indeterminate one
         */
-        vec<int> must, could;
+        std::vector<int> must, could;
         for (auto i : range(xs.size())) {
-            auto poss = nuc_values(at(pattern, i).mask());
+            auto poss = at(pattern, i).indices();
             auto & x = at(xs, i);
             uint count {0};
             for (auto j : poss) count += x.in(j);
@@ -161,7 +140,7 @@ struct PatternProp : public Propagator {
             } else if (count == x.size()) {
                 must.emplace_back(i);
             } else {
-                NUPACK_BUG("impossibility in pattern constraint");
+                NUPACK_ERROR("impossibility in pattern constraint");
             }
         }
 
@@ -173,7 +152,7 @@ struct PatternProp : public Propagator {
 
         if (len(must) == (xs.size() - 1) && len(could) == 1) {
             auto i = could[0];
-            auto poss = nuc_values(at(pattern, i).mask());
+            auto poss = at(pattern, i).indices();
             for (auto j : poss) GECODE_ME_CHECK(xs[i].nq(home, j));
         }
         return ES_FIX;
@@ -181,7 +160,7 @@ struct PatternProp : public Propagator {
 };
 
 
-void prevent_pattern(Home home, IntVarArgs vars, Sequence pattern) {
+void prevent_pattern(Home home, IntVarArgs vars, Domain pattern) {
 	NUPACK_REQUIRE(len(vars), ==, len(pattern), "mismatch in variable array and pattern size");
     GECODE_POST;
     IVArray t(home, vars);
@@ -196,7 +175,7 @@ void prevent_pattern(Home home, IntVarArgs vars, Sequence pattern) {
 
  auto remove_from_domains(IVArray window, IV allowed, WordRef ref) {
     auto const &words = ref.words();
-    vec<std::array<bool, 4>> appears(len(window), Base('_').mask());
+    vec<small_vec<bool>> appears(len(window), small_vec<bool>(Base::capacity));
 
     for (auto i : range(len(words))) {
         /* only words that aren't disallowed */
@@ -227,9 +206,9 @@ struct WordProp : public Propagator {
         auto const &words = ref.words();
 
         /* for each word in words */
-        vec<int> must, cant, could;
+        std::vector<int> must, cant, could;
         izip(words, [&](auto w, auto const &word) {
-            vec<int> counts;
+            std::vector<int> counts;
             for (auto i : range(len(word))) {
                 int count = 0;
                 for (auto val : word[i]) if (xs[i].in(val)) ++count;
@@ -318,11 +297,11 @@ struct WordProp : public Propagator {
         }
 
         /* for each word in words */
-        vec<int> must, cant, could;
+        std::vector<int> must, cant, could;
         izip(words, [&](auto w, auto const &word) {
             /* skip disallowed words */
             if (index.in(int(w))) {
-                vec<int> counts;
+                std::vector<int> counts;
                 for (auto i : range(len(word))) {
                     int count = 0;
                     for (auto val : word[i]) if (xs[i].in(val)) ++count;
@@ -376,10 +355,10 @@ void constrain_window(Home home, IntVarArgs vars, WordRef word_ref, F &&f) {
 /*****************************************************************************************************/
 /*****************************************************************************************************/
 
-NucSpace::NucSpace(Sequence const &domains) {
+NucSpace::NucSpace(Domain const &domains) {
     IntVarArgs temp;
     for (auto d : domains) {
-        temp << IntVar(*this, nuc_values(d));
+        temp << IntVar(*this, wildcard_values(d));
     }
     nucs = IntVarArray(*this, temp);
 }
@@ -387,7 +366,7 @@ NucSpace::NucSpace(Sequence const &domains) {
 
 NucSpace::NucSpace(NucSpace &other) : Space(other) {
     nucs.update(*this, other.nucs);
-    ref = other.ref;
+    reference = other.reference;
     // ref.update(*this, other.ref);
     extras.update(*this, other.extras);
 }
@@ -410,38 +389,45 @@ void NucSpace::match_constraint(int i, int j) {
 }
 
 
-void NucSpace::complementarity_constraint(int i, int j, bool wobble) {
-    if (!wobble) {
-        rel(*this, nucs[i] == 3 - nucs[j]);
-    } else {
-        BoolVarArray temp(*this, 4, 0, 1);
-        rel(*this, nucs[i], IRT_EQ, 0, pmi(temp[0]));
-        rel(*this, nucs[j], IRT_EQ, 3, imp(temp[0]));
+void NucSpace::complementarity_constraint(Alphabet const &alphabet, BasePairing const &pairing, int i, int j, bool wobble) {
+    BoolVarArray temp(*this, alphabet.length(), 0, 1);
+    // rel(*this, nucs[i] == alphabet.complement(Base::from_index(nucs[j])));
+    for (Base b : alphabet.all()) {
+        rel(*this, nucs[i], IRT_EQ, +b, pmi(temp[+b]));
 
-        rel(*this, nucs[i], IRT_EQ, 1, pmi(temp[1]));
-        rel(*this, nucs[j], IRT_EQ, 2, imp(temp[1]));
-
-        rel(*this, nucs[i], IRT_EQ, 2, pmi(temp[2]));
-        dom(*this, nucs[j], nuc_values(Base('Y')), imp(temp[2]));
-
-        rel(*this, nucs[i], IRT_EQ, 3, pmi(temp[3]));
-        dom(*this, nucs[j], nuc_values(Base('R')), imp(temp[3]));
-
-
-        // rel(*this, BOT_XOR, temp, 1);
-        // rel(*this, nucs[i], )
-
-        // BoolVarArgs temp;
-        // temp << expr(*this, (nucs[i] == 0) && (nucs[j] == 3)); /* A */
-        // temp << expr(*this, (nucs[i] == 1) && (nucs[j] == 2)); /* C */
-        // temp << expr(*this, (nucs[i] == 2) && (singleton(nucs[j]) <= IntSet({1, 3}))); /* G */
-        // temp << expr(*this, (nucs[i] == 3) && (singleton(nucs[j]) <= IntSet({0, 2}))); /* T */
-        // rel(*this, BOT_OR, temp, 1);
+        std::vector<int> vals;
+        if (wobble) {
+            for (auto a : alphabet.all()) if (pairing.can_pair(a, b)) vals.emplace_back(+a);
+        } else {
+            vals.emplace_back(+alphabet.complement(b));
+        }
+        dom(*this, nucs[j], IntSet(std::move(vals)), imp(temp[+b]));
     }
 }
 
+void NucSpace::pairing_constraint(BasePairing const &pairs, int i, int j) {
+    BoolVarArray temp(*this, pairs.length, 0, 1);
 
-void NucSpace::pattern_constraint(vec<int> const &window, Sequence const &pattern) {
+    for (int b = 0; b != pairs.length; ++b) {
+        // nucs are the gecode variables
+        rel(*this, nucs[i], IRT_EQ, b, pmi(temp[b])); // if nuc[i] is base b
+        auto vals = vmap<std::vector<int>>(pairs.pairs(Base::from_index(b)), [](Base b) {return +b;}); // possible pairs of b
+        dom(*this, nucs[j], IntSet(std::move(vals)), imp(temp[b])); // then nuc[j] should be one of vals
+    }
+
+    // rel(*this, BOT_XOR, temp, 1);
+    // rel(*this, nucs[i], )
+
+    // BoolVarArgs temp;
+    // temp << expr(*this, (nucs[i] == 0) && (nucs[j] == 3)); /* A */
+    // temp << expr(*this, (nucs[i] == 1) && (nucs[j] == 2)); /* C */
+    // temp << expr(*this, (nucs[i] == 2) && (singleton(nucs[j]) <= IntSet({1, 3}))); /* G */
+    // temp << expr(*this, (nucs[i] == 3) && (singleton(nucs[j]) <= IntSet({0, 2}))); /* T */
+    // rel(*this, BOT_OR, temp, 1);
+}
+
+
+void NucSpace::pattern_constraint(vec<int> const &window, Domain const &pattern) {
     uint n = len(pattern);
     uint end = len(window) - n + 1;
     for (auto i : range(end)) {
@@ -478,10 +464,12 @@ void NucSpace::diversity_constraint(vec<int> const &window, int wordsize, int mi
 }
 
 
-// void NucSpace::word_constraint(vec<int> const &window, vec<Sequence> const &words) {
+// void NucSpace::word_constraint(std::vector<int> const &window, vec<Sequence> const &words) {
 void NucSpace::word_constraint(vec<int> const &window, WordRef word_ref) {
     IntVarArgs temp;
-    for (auto i : window) temp << nucs[i];
+    for (auto i : window) {
+        temp << nucs[i];
+    }
     constrain_window(*this, temp, word_ref, [&](auto var) {
         IntVarArgs temp(this->extras);
         temp << var;
@@ -543,21 +531,21 @@ void NucSpace::disallow(int i, int val) {
 }
 
 
-void NucSpace::add_reference(Sequence const &reference) {
+void NucSpace::add_reference(Sequence const &ref) {
     // IntVarArgs temp;
-    for (auto d : reference) {
+    // for (auto d : reference) {
         // int value {d.value};
-        NUPACK_REQUIRE(d.value, <, 4, "Degenerate reference sequence");
-        // temp << IntVar(*this, IntSet(vec<int>{value}));
-    }
-    ref = &reference;
+        // NUPACK_REQUIRE(d.value, <, 4, "Degenerate reference sequence");
+        // temp << IntVar(*this, IntSet(std::vector<int>{value}));
+    // }
+    reference = ref;
     // ref = IntVarArray(*this, temp);
 }
 
 
 auto select_close = [](auto const &home, auto x, auto i) {
     NucSpace const &space = static_cast<NucSpace const &>(home);
-    auto const &ref = *(space.ref);
+    Sequence const &ref = space.reference;
     int ret {-1};
     if (i < ref.size()) {
         auto r = ref[i].value;
@@ -608,17 +596,15 @@ void NucSpace::cheap_reference_brancher() {
 
 
 NucSpace::operator Sequence() const {
-    return vmap<Sequence>(nucs, [](auto i) {return Base::from_index(i.val());});
+    return indirect_view(nucs, [](auto i) {return Base::from_index(i.val());});
 }
 
 
-
-Constraints::Constraints(Sequence const &domains) : initial(std::make_unique<NucSpace>(domains)), handler() {
-    for_each(domains, [&](auto const &n) {handler.add_nucleotide_variable(n);});
-};
-
-
-
+Constraints::Constraints(Alphabet a, Domain const &domains)
+    : initial(std::make_unique<NucSpace>(domains)), handler(std::move(a)) {
+    for (auto n : domains)
+        handler.add_variable(custom_csp::SequenceUtils::nuc_to_bool(handler.alphabet, n));
+}
 
 
 void Constraints::match_constraint(int i, int j) {
@@ -626,24 +612,25 @@ void Constraints::match_constraint(int i, int j) {
     initial->match_constraint(i, j);
 
     /* old */
-    handler.add_constraint(IdentConstraint(i, j));
+    handler.add_constraint(custom_csp::IdentConstraint(i, j));
 }
 
 
-void Constraints::complementarity_constraint(int i, int j, bool wobble) {
+void Constraints::pairing_constraint(BasePairing const &a, int i, int j) {
+    initial->pairing_constraint(a, i, j);
+    handler.add_constraint(custom_csp::PairConstraint(a, i, j));
+}
+
+void Constraints::complementarity_constraint(Alphabet const &a, BasePairing const &p, int i, int j, bool wobble) {
     /* new */
-    initial->complementarity_constraint(i, j, wobble);
+    initial->complementarity_constraint(a, p, i, j, wobble);
 
     /* old */
-    if (wobble) {
-        handler.add_constraint(CompConstraint(i, j, NUPACK_CS_WEAK));
-    } else {
-        handler.add_constraint(CompConstraint(i, j, NUPACK_CS_STRONG));
-    }
+    handler.add_constraint(custom_csp::CompConstraint(a, p, i, j, wobble));
 }
 
 
-void Constraints::pattern_constraint(vec<int> const &window, Sequence const &pattern) {
+void Constraints::pattern_constraint(vec<int> const &window, Domain const &pattern) {
     /* do nothing if pattern won't be a problem */
     if (len(pattern) > len(window)) return;
 
@@ -652,7 +639,7 @@ void Constraints::pattern_constraint(vec<int> const &window, Sequence const &pat
 
     /* old */
     auto poss = handler.get_possible_nucleotides();
-    handler.add_constraint(PatternConstraint(window, string(pattern), poss));
+    handler.add_constraint(custom_csp::PatternConstraint(handler.alphabet, window, pattern, poss));
 }
 
 
@@ -661,44 +648,54 @@ void Constraints::diversity_constraint(vec<int> const &window, int wordsize, int
     initial->diversity_constraint(window, wordsize, mintypes);
 
     /* old */
-    static const std::map<int, vec<string>> diversity_levels {
-        {2, {"A", "C", "T", "G"}},
-        {3, {"W", "S", "M", "K", "Y", "R"}},
-        {4, {"V", "H", "D", "B"}}
-    };
-
-    if (mintypes > 1 && mintypes <= 4) {
+    if (mintypes > 1 && mintypes <= handler.alphabet.length()) {
         auto poss = handler.get_possible_nucleotides();
 
-        for (auto s : diversity_levels.at(mintypes)) {
-            auto pattern = multiply_substrings({{s, wordsize}});
-            handler.add_constraint(PatternConstraint(window, pattern, poss));
-        }
+        vec<bool> mask(handler.alphabet.length());
+        for (auto i : range(mintypes-1)) mask.rbegin()[i] = true; // e.g. at least 2 types --> forbid all wildcards of width 1. rbegin so don't need to sort.
+
+        do {
+            auto pattern = Domain(copies(Wildcard::from_mask(mask), wordsize));
+            handler.add_constraint(custom_csp::PatternConstraint(handler.alphabet, window, pattern, poss));
+        } while(std::next_permutation(mask.begin(), mask.end()));
     }
 }
 
 
-void Constraints::word_constraint(vec<int> const &window, vec<Sequence> const &words) {
+void Constraints::word_constraint(vec<int> const &window, DomainList const &words) {
     // for (auto const &w: words) NUPACK_REQUIRE(len(window), ==, len(w), "word/window size mismatch");
     // initial->word_constraint(window, words);
-    /* new */
-    DictWords int_words;
-    for (auto const &word: words) {
-        int_words.emplace_back(vmap(word, [](auto w) {return nuc_values(w.mask());}));
+    /* new */ {
+        std::set<vec<vec<int>>> unique_words;
+        for (auto const &word : words) {
+            auto const all = vmap(word, [](Wildcard w) {return w.indices<vec<int>>();});
+            for (uint i = 0; i + window.size() < all.size() + 1; ++i)
+                unique_words.emplace(view(all, i, i + window.size()));
+        }
+
+        // Enter each domain as a possibility for the segment
+        DictWords int_words;
+        for (auto &word: unique_words) int_words.emplace_back(std::move(word));
+
+        // Add the possibilities to the dictionary
+        dictionary->emplace_back(int_words);
+        // Make the constraint using the words
+        initial->word_constraint(window, WordRef{dictionary.get(), uint(dictionary->size() - 1)});
     }
-
-    dictionary->emplace_back(int_words);
-    initial->word_constraint(window, WordRef{dictionary.get(), uint(dictionary->size() - 1)});
-
-    /* old */
-    auto supp_var = handler.add_variable(vec<trinary>(len(words), true));
-    auto old_words = vmap(words, [](auto const &x) {return string(x);});
-    handler.add_constraint(WordConstraint(window, old_words, supp_var));
-    ++num_extra_vars;
+    /* old */ {
+        std::set<Domain> unique_domains;
+        for (auto const &word : words) {
+            for (uint i = 0; i + window.size() <= word.size(); ++i)
+                unique_domains.emplace(view(word, i, i + window.size()));
+        }
+        auto supp_var = handler.add_variable(vec<custom_csp::trinary>(len(unique_domains), true));
+        handler.add_constraint(custom_csp::WordConstraint(handler.alphabet, window, view(unique_domains), supp_var));
+        ++num_extra_vars;
+    }
 }
 
 
-void Constraints::similarity_constraint(vec<int> const &window, Sequence const &reference, std::pair<real, real> limits) {
+void Constraints::similarity_constraint(vec<int> const &window, Domain const &reference, same_pair<real> limits) {
     NUPACK_REQUIRE(len(window), ==, len(reference), "window/reference size mismatch");
     NUPACK_REQUIRE(limits.first, >=, 0, "lower limit invalid");
     NUPACK_REQUIRE(limits.first, <, limits.second, "limits out of order");
@@ -709,14 +706,14 @@ void Constraints::similarity_constraint(vec<int> const &window, Sequence const &
     int upper = std::floor(limits.second * n);
     NUPACK_REQUIRE(lower, <=, upper, "discretized limits are incompatible");
     DictWords one;
-    one.emplace_back(vmap(reference, [](auto w) {return nuc_values(w.mask());}));
+    one.emplace_back(vmap(reference, [](Wildcard w) {return w.indices<vec<int>>();}));
     dictionary->emplace_back(one);
 
     /* new */
     initial->similarity_constraint(window, WordRef{dictionary.get(), uint(dictionary->size() - 1)}, {lower, upper});
 
     /* old */
-    handler.add_constraint(MatchConstraint(window, string(reference), {limits.first}, {limits.second}));
+    handler.add_constraint(custom_csp::MatchConstraint(handler.alphabet, window, reference, {limits.first}, {limits.second}));
 }
 
 
@@ -803,7 +800,7 @@ Optional<Sequence> Constraints::make_old_mutation(Sequence const &cur_seq, int p
     Optional<Sequence> ret;
 
     auto time = time_it([&] {
-        vec<int> cur_vars{view(cur_seq)};
+        vec<int> cur_vars(indirect_view(cur_seq, [](auto i) {return int(+i);}));
         /* correct length when window constraints exist */
         for (auto i : range(num_extra_vars)) cur_vars.emplace_back(0);
 
@@ -815,7 +812,7 @@ Optional<Sequence> Constraints::make_old_mutation(Sequence const &cur_seq, int p
         }
 
         if (len(vars) > sequence_length()) vars.resize(sequence_length());
-        ret = vmap<Sequence>(vars, [](auto i) {return Base::from_index(i);});
+        ret = Sequence(indirect_view(vars, [](auto i) {return Base::from_index(i);}));
     });
 
     update_cutoff(time);
@@ -847,7 +844,7 @@ Optional<Sequence> Constraints::old_initial_sequence() {
     auto time = time_it([&]{
         auto vars = handler.init_random();
         if (len(vars) > sequence_length()) vars.resize(sequence_length());
-        ret = vmap<Sequence>(vars, [](auto i) {return Base::from_index(i);});
+        ret = Sequence(indirect_view(vars, [](auto i) {return Base::from_index(i);}));
     });
 
     update_cutoff(time);
@@ -881,4 +878,4 @@ real RunningAverage::add_value(real val) {
     return average;
 }
 
-}}
+}

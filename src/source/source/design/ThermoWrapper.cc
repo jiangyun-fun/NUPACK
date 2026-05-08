@@ -4,9 +4,19 @@
 #include <nupack/model/Model.h>
 #include <nupack/thermo/Engine.h>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 EngineObserver NullEngineObserver {};
+
+template <class F>
+auto maybe_repeat(EngineObserver &engobs, string_view c, uint n, bool b, F &&f) {
+    double t = 0;
+    if (!engobs.slowdown) return f();
+    std::optional<decltype(f())> out;
+    auto time = time_it(engobs.slowdown, [&] {out = f();});
+    if (engobs.log) engobs.log(c, n, time, b);
+    return std::move(*out);
+}
 
 /**
  * @brief An adapter for thermo::dynamic_program()
@@ -19,97 +29,64 @@ EngineObserver NullEngineObserver {};
  *
  * @return The logarithm of the partition function
  */
-real partition_function(Local const &env, ::nupack::Complex const &seqs,
-        models_type const &models, EngineObserver &engobs) {
-    if (!engobs.slowdown)
-        return thermo::dynamic_program<3, 0, 0, 1, 1>(env, seqs, models);
+// real partition_function(Env const &env, ::nupack::Complex const &seqs, Model<> const &model, EngineObserver &engobs) {
+//     return maybe_repeat(engobs, "partition function", nt(seqs), false, [&]{
+//         return thermo::compute(thermo::Job{seqs, thermo::Job::PF()}, model).pfunc->logq;
+//         // return thermo::dynamic_program<3, 0, 0, 1, 1>(env, seqs, models);
+//     });
+// }
 
-    decltype(thermo::dynamic_program<3, 0, 0, 1, 1>(env, seqs, models)) ret;
-    auto time = time_it(engobs.slowdown, [&](){
-        ret = thermo::dynamic_program<3, 0, 0, 1, 1>(env, seqs, models);
+
+real log_partition_function(Env const &env, ::nupack::Complex const &seqs, ThermoEnviron &t_env, EngineObserver &engobs) {
+    return maybe_repeat(engobs, "partition function", nt(seqs), true, [&]{
+        std::unique_lock lock(t_env.mut.mut);
+        return thermo::compute(thermo::Job{seqs, thermo::Job::PF()}, t_env.computers, t_env.compute_options(env)).pfunc.value().logq;
+        // return thermo::dynamic_program<3, 0, 0, 1, 1>(env, seqs, t_env.doubled(), underlying_cache);
     });
-    engobs.log("thermo", "partition function", len(seqs), time, false);
-    return ret;
 }
 
 
-/**
- * @brief An adapter for thermo::pair_probability()
- * @details Used to avoid multiple recomputation of dynamic programming
- *     algorithm code.
- *
- * @param seqs The sequence for which to compute the pair probabilities matrix
- * @param models References to two models with the same conditions but with
- *     single- and double-precision datatypes
- *
- * @return A pair with the pair probabilities matrix (Tensor) and the
- *     logarithm of the partition function.
- */
-std::pair<thermo::Tensor<real, 2>, real> pair_probability(Local const &env,
-        ::nupack::Complex const &seqs, models_type const &models, EngineObserver &engobs) {
-    if (!engobs.slowdown)
-        return thermo::pair_probability<3, 0, 0, 1, 1>(env, seqs, models);
 
-    decltype(thermo::pair_probability<3, 0, 0, 1, 1>(env, seqs, models)) ret;
-    auto time = time_it(engobs.slowdown, [&]{
-        ret = thermo::pair_probability<3, 0, 0, 1, 1>(env, seqs, models);
-    });
-    engobs.log("thermo", "pair probability", len(seqs), time, false);
-    return ret;
-}
+// /**
+//  * @brief An adapter for thermo::pair_probability()
+//  * @details Used to avoid multiple recomputation of dynamic programming
+//  *     algorithm code.
+//  *
+//  * @param seqs The sequence for which to compute the pair probabilities matrix
+//  * @param models References to two models with the same conditions but with
+//  *     single- and double-precision datatypes
+//  *
+//  * @return A pair with the pair probabilities matrix (Tensor) and the
+//  *     logarithm of the partition function.
+//  */
+// std::pair<PairMatrix<real>, real> pair_probability(Env const &env, ::nupack::Complex const &seqs, Model<> const &model, EngineObserver &engobs) {
+//     return maybe_repeat(engobs, "pair probability", nt(seqs), false, [&]{
+//         auto r = thermo::compute(thermo::Job{seqs, thermo::Job::Pairs()}, model);
+//         return std::make_pair(std::move(r.pairs->matrix), r.pfunc->logq);
+//         // return thermo::pair_probability<3, 0, 0, 1, 1>(env, seqs, models);
+//     });
+// }
 
-real partition_function(Local const &env, ::nupack::Complex const &seqs, ThermoEnviron &t_env,
-        EngineObserver &engobs) {
-    return fork(std::get<0>(t_env.models).energy_model.ensemble_type(), [&](auto x) {
-        auto &underlying_cache = std::get<DesignCache<decltype(x)>>(t_env.cache);
-        decltype(thermo::dynamic_program<3, 0, 0, 1, 1>(env, seqs, t_env.doubled(), underlying_cache)) ret;
-        if (!engobs.slowdown)
-            return thermo::dynamic_program<3, 0, 0, 1, 1>(env, seqs, t_env.doubled(), underlying_cache);
-
-        auto time = time_it(engobs.slowdown, [&]{
-            ret = thermo::dynamic_program<3, 0, 0, 1, 1>(env, seqs, t_env.doubled(), underlying_cache);
+std::pair<PairMatrix<real>, real> raw_pair_probability(Env const &env, ::nupack::Complex const &seqs, ThermoEnviron &t_env, Sparsity s, EngineObserver &engobs) {
+    try {
+        return maybe_repeat(engobs, "pair probability", nt(seqs), true, [&]{
+            std::unique_lock lock(t_env.mut.mut);
+            auto r = thermo::compute(thermo::Job{seqs, thermo::Job::Pairs{s}}, t_env.computers, t_env.compute_options(env));
+            NUPACK_ASSERT(r.pairs && r.pfunc, r.pairs, r.pfunc, seqs);
+            return std::make_pair(std::move(r.pairs->matrix), r.pfunc->raw_logq);
+            // return thermo::pair_probability<3, 0, 0, 1, 1>(env, seqs, t_env.doubled(), t_env.cache, obs);
         });
-        engobs.log("thermo", "partition function", len(seqs), time, true);
-        return ret;
-    });
+    } catch (Error const &e) {
+        // auto it = t_env.cache.find(seqs);
+        // if (it != end_of(t_env.cache)) {
+        //     BEEP(it->first);
+        //     BEEP(fork(it->second, [](auto const &x) {return std::get<1>(x.contents).size();}));
+        // }
+
+        BEEP(seqs);
+        throw;
+    }
 }
-
-
-std::pair<thermo::Tensor<real, 2>, real> pair_probability(
-        Local const &env, ::nupack::Complex const &seqs,
-        ThermoEnviron &t_env, EngineObserver &engobs) {
-    return fork(std::get<0>(t_env.models).energy_model.ensemble_type(), [&](auto x) {
-        auto &underlying_cache = std::get<DesignCache<decltype(x)>>(t_env.cache);
-
-        real pfunc;
-        auto obs = [&](auto const &m) {if (m.sequences == seqs.views()) pfunc = m.raw_result;};
-
-        decltype(thermo::pair_probability<3, 0, 0, 1, 1>(env, seqs, t_env.doubled(), underlying_cache, obs)) ret;
-        try {
-            if (!engobs.slowdown) {
-                ret = thermo::pair_probability<3, 0, 0, 1, 1>(env, seqs, t_env.doubled(), underlying_cache, obs);
-            } else {
-                auto time = time_it(engobs.slowdown, [&]{
-                    ret = thermo::pair_probability<3, 0, 0, 1, 1>(env, seqs, t_env.doubled(), underlying_cache, obs);
-                });
-                engobs.log("thermo", "pair probability", len(seqs), time, true);
-            }
-        } catch (Error const &e) {
-            auto it = underlying_cache.find(seqs);
-            if (it != end_of(underlying_cache)) {
-                BEEP(it->first);
-                BEEP(fork(it->second, [](auto const &x) {return std::get<1>(x.contents).size();}));
-            }
-
-            BEEP(seqs);
-            throw e;
-        }
-
-        ret.second = pfunc;
-        return ret;
-    });
-}
-
 
 /**
  * @brief Adapts thermo::pair_probability() for a sequence where fixed_pairs
@@ -130,87 +107,58 @@ std::pair<thermo::Tensor<real, 2>, real> pair_probability(
  * @return A pair with the pair probabilities matrix (Tensor) and the
  *     logarithm of the partition function. Both have bonuses removed already.
  */
-std::pair<thermo::Tensor<real, 2>, real> pair_probability(
-        Local const &env,
-        ::nupack::Complex const &seqs,
-        models_type const &models,
-        vec<SplitPoint> const &fixed_pairs,
-        real bonus,
-        EngineObserver &engobs
-        ) {
-    auto const &cachedmod = std::get<1>(models);
-    auto const &mod = cachedmod.energy_model;
-    real exp_bonus = mod.boltz(bonus);
-    std::tuple<float, real, overflow<real32>, overflow<real64>> bonuses;
-    std::get<0>(bonuses) = exp_bonus;
-    std::get<1>(bonuses) = exp_bonus;
-    std::get<2>(bonuses) = simd::ifrexp(exp_bonus);
-    std::get<3>(bonuses) = simd::ifrexp(exp_bonus);
-
-    auto pairing = [&, n=len(seqs)](auto i, auto j, bool can_pair, auto const & A,
-                auto const &block, auto const & s, auto const &model, auto && recursion) {
-        auto orig_i = i + s.offset, orig_j = j + s.offset;
-        auto distance = std::abs(int(orig_i) - int(orig_j));
-
-        /* modulo and swap necessary so that bonuses are added to both Q^b(i,j)
-        and Q^b(j, i+n) */
-        i = orig_i % n;
-        j = orig_j % n;
-        if (j < i) std::swap(i, j);
-        // normal behavior; early exit
-        bool fixed = contains(fixed_pairs, SplitPoint{i, j});
-        bool adjacent = distance == 1;
-        bool normal = !fixed && can_pair;
-        using V = value_type_of<decltype(block)>;
-
-        return A.sum(
-            (normal)             ? A.maybe() & recursion() : A.zero(),
-            (fixed && adjacent)  ? A.maybe() & std::get<V>(bonuses) : A.zero(),
-            (fixed && !adjacent) ? A.maybe() & A.product(recursion(), std::get<V>(bonuses)) : A.zero()
-        );
-
+std::pair<PairMatrix<real>, real> bonus_pair_probability(Env const &env, ::nupack::Complex seqs,
+    ThermoEnviron &t_env, Sparsity sparsity, vec<SplitPoint> const &fixed, real bonus, EngineObserver &engobs) {
+    izip(seqs, [](auto i, auto &s) {s.id = i;}); // Make strands identifiable based on id
+    auto const &mod = t_env.model;
+    std::set<SplitPoint> const fixed_pairs(fixed.begin(), fixed.end());     /* assumes unique pairs */
+    auto const starts = prefixes(true, indirect_view(seqs, len));
+    auto pairing = [&](auto const &v, auto i, auto j) -> std::pair<real, thermo::Action::kind> {
+        i += starts[front(v).id]; // go to absolute indices
+        j += starts[back(v).id];
+        return {fixed_pairs.count(std::minmax(i, j)) ? bonus : 0, thermo::Action::bonus};
     };
 
-    real pfunc;
-    bool use_B = contains(fixed_pairs, SplitPoint{0, len(seqs) - 1});
-    auto obs = [&](auto const &m) {if (m.sequences == seqs.views()) pfunc = m.raw_result;};
+    auto [P, logq] = maybe_repeat(engobs, "bonused pair probability", nt(seqs), false, [&]{
+        auto options = t_env.compute_options(env);
+        options.cache_complexes = false;
+        options.action = thermo::Action{pairing};
+        std::unique_lock lock(t_env.mut.mut);
+        auto r = thermo::compute(thermo::Job{seqs, thermo::Job::Pairs{{.clamp=false}}}, t_env.computers, options); // Get all dense elements
+        NUPACK_ASSERT(r.pairs && r.pfunc, r.pairs, r.pfunc, seqs);
+        return std::make_pair(r.pairs->matrix.full(), r.pfunc->raw_logq);
+    });
 
-    decltype(thermo::bonus_pair_probability<3, 0, 0, 1, 1>(env, seqs, models, False(), obs, pairing, use_B)) ret;
-
-    if (!engobs.slowdown) {
-        ret = thermo::bonus_pair_probability<3, 0, 0, 1, 1>(env, seqs, models, False(), obs, pairing, use_B);
-    } else {
-        auto time = time_it(engobs.slowdown, [&]{
-            ret = thermo::bonus_pair_probability<3, 0, 0, 1, 1>(env, seqs, models, False(), obs, pairing, use_B);
-        });
-        engobs.log("thermo", "bonused pair probability", len(seqs), time, true);
-    }
+    real const exp_bonus = mod.boltz(bonus);
 
     // remove extra bonuses from fixed base pairs
-    auto & pair_probs = ret.first;
-    for (auto const &sp : fixed_pairs) {
-        uint i, j;
-        std::tie(i, j) = sp;
-        *pair_probs(i, j) = *pair_probs(j, i) = *pair_probs(i, j) / exp_bonus;
+    for (auto const &[i, j] : fixed_pairs) {
+        P(i, j) = P(j, i) = P(i, j) / exp_bonus;
+        NUPACK_QUICK_REQUIRE(P(i, j), >=, 0, i, j, bonus, exp_bonus, mod.beta, seqs, fixed_pairs);
+        NUPACK_QUICK_REQUIRE(P(i, j), <=, 1.01, i, j, bonus, exp_bonus, mod.beta, seqs, fixed_pairs);
     }
 
     /* fix the diagonal unpaired probabilities */
-    for (auto i : indices(pair_probs)) {
-        real acc = 0;
-        for (auto j : indices(pair_probs)) acc += (i == j) ? 0 : *pair_probs(i, j);
-        *pair_probs(i, i) = 1.0 - acc;
+    clamp_pair_matrix(P);
+
+    // if (Debug) for (auto const &[i, j] : fixed_pairs) {NUPACK_REQUIRE(P(i, j), >=, 0.99, i, j, P);}
+
+    if (mod.has_terminal_penalty) {
+        Sequence s;
+        for (auto const &seq : seqs) s.insert(s.end(), seq.begin(), seq.end());
+        for (auto const &[i, j] : fixed_pairs) {
+            logq += mod.terminal_penalty(s[i ? i : j], s[i ? j : i]) * mod.beta; // add back positive number usually
+        }
     }
 
-     real terminal_correction = 1.0;
-     if (mod.has_terminal_penalty && use_B) {
-        terminal_correction *= cachedmod.terminal(at(seqs.catenated, 0), at(seqs.catenated, len(seqs) - 1));
-     }
+    // Before this code used QB but that was annoying to do so I took it out.
+    logq -= len(fixed_pairs) * std::log(exp_bonus);
+    // Fix salt bonus, I don't think the code was handling this properly before
+    // Have to add half of the bonus for ever bonused base pair
+    logq += -0.5 * mod.beta * len(fixed_pairs) * mod.dG(mod.parameters.loop_bias());
 
-    /* assumes unique pairs */
-    ret.second = pfunc - len(fixed_pairs) * std::log(exp_bonus) - std::log(terminal_correction);
-
-    if (std::isnan(ret.second)) NUPACK_ERROR("bonused DPA generated NaN", seqs, pfunc, len(fixed_pairs), std::log(exp_bonus));
-    return ret;
+    if (std::isnan(logq)) NUPACK_ERROR("bonused DPA generated NaN", seqs, logq, len(fixed_pairs), std::log(exp_bonus));
+    return std::make_pair(PairMatrix<real>(P, sparsity), logq);
 }
 
-}}
+}

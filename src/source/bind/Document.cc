@@ -8,8 +8,12 @@ namespace nupack {
 
 /// Perform functions declared elsewhere one time; the order should reflect dependencies
 void render_submodules(rebind::Document &doc) {
-#   define NUPACK_TMP(r, data, F) void F(rebind::Document &); F(doc);
-    BOOST_PP_SEQ_FOR_EACH(NUPACK_TMP, _, NUPACK_RENDERS)
+#   define NUPACK_TMP(F) void F(rebind::Document &); F(doc);
+    NUPACK_TMP(render_constants);
+    NUPACK_TMP(render_math);
+    NUPACK_TMP(render_model);
+    NUPACK_TMP(render_thermo);
+    NUPACK_TMP(render_design);
 #   undef NUPACK_TMP
 }
 

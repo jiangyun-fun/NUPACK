@@ -3,10 +3,9 @@ option(NUPACK_BUILD_CXX          "Whether or not to build C++ libraries"        
 option(NUPACK_BUILD_TESTS        "Whether or not to build C++ unit tests"        ON)
 option(NUPACK_BUILD_PYTHON       "Whether or not to build Python bindings"       ON)
 option(NUPACK_BUILD_DOCS         "Whether or not to build website documentation" OFF)
-option(NUPACK_SHARED             "Build libnupack as a shared library"           OFF)
 option(NUPACK_CCACHE             "Enable CCache"                                 ON)
 option(NUPACK_SERIALIZE          "Enable serialization via JSON and msgpack"     ON)
-option(NUPACK_PIC                "Use position-independent code linkage"         ${CMAKE_POSITION_INDEPENDENT_CODE})
+option(NUPACK_PIC                "Use position independent code"                 ON)
 option(NUPACK_DETERMINISTIC      "Use deterministic random number generator"     OFF)
 option(NUPACK_FORTRAN            "Compile Fortran sandbox"                       OFF)
 option(NUPACK_IWYU               "Enable include-what-you-use"                   OFF)
@@ -16,40 +15,15 @@ option(NUPACK_MATLAB             "Enable MATLAB"                                
 option(NUPACK_MLPACK             "Enable MLPACK"                                 OFF)
 option(NUPACK_MPI                "Enable MPI compilation"                        OFF)
 option(NUPACK_OMP                "Enable OpenMP"                                 OFF)
+option(NUPACK_CUDA               "Enable CUDA"                                   OFF)
 option(NUPACK_ONLY               "Compile only a given file"                     OFF)
-option(NUPACK_DESIGN_ONLY        "Compile only given files with design library"  OFF)
 option(NUPACK_PGO                "Enable PGO, can be OFF, READ, or WRITE"        OFF)
 option(NUPACK_EXTERNAL_ARMADILLO "Use external version of armadillo"             OFF)
+option(NUPACK_SIMD               "Use SIMD instructions for dynamic programs"    ON)
 
 ################################################################################
 
 message(STATUS "--------------------------------------------------------------------------------")
-
-include(CheckCXXCompilerFlag)
-CHECK_CXX_COMPILER_FLAG("-march=native" nupack_arch_native)
-
-if(NUPACK_SIMD_FLAGS)
-    message(STATUS "-- Using SIMD architecture flags \"${NUPACK_SIMD_FLAGS}\"")
-elseif(nupack_arch_native)
-    message(STATUS "-- Using \"-march=native\" for SIMD architecture flags")
-    set(NUPACK_SIMD_FLAGS "-march=native" CACHE STRING "SIMD architecture flags to use when compiling")
-else()
-    message(STATUS "-- Not using any SIMD architecture flags")
-endif()
-
-################################################################################
-
-include(CheckCXXSourceCompiles)
-check_cxx_source_compiles(
-    "#include <shared_mutex>
-    std::shared_timed_mutex mut;
-    int main(){
-        auto x = std::unique_lock<std::shared_timed_mutex>(mut);
-        auto y = std::shared_lock<std::shared_timed_mutex>(mut);
-        return 0;
-    }"
-    can_use_shared_mutex
-)
 
 ################################################################################
 
@@ -67,3 +41,17 @@ function(prefix_transform var prefix)
     endforeach(f)
     set(${var} "${listVar}" PARENT_SCOPE)
 endfunction(prefix_transform)
+
+################################################################################
+
+if(NUPACK_PIC)
+    message("-- Compiling with position-independent code linkage")
+else()
+    message("-- Not compiling with position-independent code linkage")
+endif()
+
+function(nupack_cxx_target var)
+    set_target_properties(${var} PROPERTIES POSITION_INDEPENDENT_CODE ${NUPACK_PIC})
+endfunction()
+
+################################################################################

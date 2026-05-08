@@ -6,111 +6,139 @@
  * @date 2018-05-31
  */
 #pragma once
-#include "Overflow.h"
+#include "../common/Error.h"
+#include "../reflect/Print.h"
+#include "../math/SIMD.h"
 
-namespace nupack { namespace thermo {
+namespace nupack::thermo {
 
 /******************************************************************************************/
 
 struct first_arg {
     template <class T, class U>
     constexpr auto operator()(T &&t, U) const {
-        static_assert(!is_same<decay<T>, Zero>, "");
-        static_assert(is_same<decay<U>, Zero>, "");
+        static_assert(!is_same<decay<T>, simd::Zero>, "");
+        static_assert(is_same<decay<U>, simd::Zero>, "");
         return fw<T>(t);}
 };
 
 /******************************************************************************************/
 
 /// In the PF ring, + is plus() and * is times()
+template <class T>
 struct PF {
-    using logarithmic = False;
-    static constexpr auto zero() {return *::nupack::zero;}
-    static constexpr auto one() {return *::nupack::one;}
+    // static constexpr uint value = 0;
+    using value_type = T;
+
+    static constexpr T log_zero() {return -inf<T>();}
+    static constexpr T zero() {return 0;}
+    static constexpr T one() {return 1;}
+
+
     static constexpr auto plus() {return simd::plus;}
+    static constexpr auto times() {return simd::multiplies;}
+
     static constexpr auto plus_eq() {return ::nupack::plus_eq;}
-    static constexpr auto times() {return simd::times;}
-    static constexpr auto invert() {return simd::invert;}
-    static constexpr auto sum() {return simd::sum;}
+    static constexpr auto sum() {return simd::reduce_sum;}
     static constexpr auto ldexp() {return simd::ldexp;}
+    static constexpr auto ifrexp() {return simd::ifrexp;}
 
-    // Return if the value overflows,
-    // If so, set it to 0 (any finite number OK) so conversion to overflow doesn't break on it
-    template <class M>
-    static bool prevent_overflow(M &m) {
-        // NUPACK_ASSERT(!(m < 0), m); // nan can happen if inf is an intermediate (0 * inf)
-        if (unlikely(m < 0 || std::isnan(m) || m == std::numeric_limits<M>::infinity())) {m = 0; return true;}
-        else return false;
+    static constexpr auto invert() {return simd::reciprocal;}
+
+    static constexpr bool valid(T const t) {
+        // NUPACK_QUICK_REQUIRE(t, >=, 0); SIMD operations seem to have this fail in event of overflow.
+        return likely(sign(t) && is_finite(t));
     }
 
-    // set the mantissa of the output using the initial exponent guess e
-    template <class E, class F>
-    static auto element_value(bool &err, F &&rule, E e0) {
-        if constexpr(std::is_integral_v<E>) {
-            for (uint i = 0; i != 512; ++i) {
-                auto m = mantissa(rule, -e0);
-                E e = exponent(rule, -e0);
-                if (!unlikely(prevent_overflow(m))) {
-                    auto p = simd::ifrexp(m);
-                    if (p.second > 0) {
-                        m = p.first;
-                        e += p.second;
-                    }
-                    return std::make_pair(m, e + e0);
-                } else {
-                    print("nupack: adjusting dynamic program exponent", i, m, e, e0);
-                    e0 += 32;//std::numeric_limits<M>::max_exponent / 4; // about half the total exponent range
-                }
-            }
-            err = true;
-            return decltype(std::make_pair(mantissa(rule, -e0), E()))();
-        } else {
-            auto m = simd::ldexp(mantissa(rule, -e0), exponent(rule, -e0));
-            err = prevent_overflow(m);
-            NUPACK_DASSERT(std::isfinite(m), m);
-            return m;
-        }
+    template <class U>
+    static constexpr T as_logarithm(U const &u) {
+        T o = 0;
+        simd::set_logarithm(o, u);
+        return o;
     }
+    static constexpr T energy_scale(T const beta) {return -beta / std::log(2.0);}
+    static constexpr T boltz(T const energy, T const energy_scale) {return exp2(energy * energy_scale);}
+    static constexpr T free_energy(T const factor, T const energy_scale) {return log2(factor) / energy_scale;}
+
+    template <class U>
+    static real as_exponential(U const &factor) {return static_cast<real>(factor);}
+
+    template <class U>
+    static void adjust_exponential(U &value, T scale) {value = times()(value, scale);}
 };
 
-// There is an abandoned branch implementing log sum exp algebra
-// but even when optimized the code was around 10x slower than PF
+static constexpr int LSEVersion = 4;
+
+template <class T>
 struct LSE {
-    using logarithmic = True;
-    static constexpr auto zero() {return *::nupack::minf;}      // log(0)
-    static constexpr auto one() {return *::nupack::zero;}       // log(1)
-    static constexpr auto plus() {return simd::lse2;}           // log(exp(a) + exp(b))
-    static constexpr auto plus_eq() {return ::nupack::plus_eq;}
+    using value_type = T;
+
+    struct impl {
+        template <class ...Ts>
+        auto operator()(Ts const &...ts) {
+            auto const m = simd::eval_if_simd(fold(simd::max, ts...));
+            return simd::eval_if_simd(m + simd::log2(simd::tag<LSEVersion>(), fold(simd::plus, simd::exp2(simd::tag<LSEVersion>(), ts - m)...)));
+        }
+    };
+
+    // Because of assumptions in log2 implementation, zero must be kept finite
+    static constexpr T zero() {return 0.00390625 * std::numeric_limits<T>::lowest();}      // log(0)
+    static constexpr T one() {return 0;}       // log(1)
+    static constexpr bool valid(T const t) {return is_finite(t);}
+
+    static constexpr auto plus() {return impl();}           // log(exp(a) + exp(b))
     static constexpr auto times() {return simd::plus;}          // log(exp(a) * exp(b)) = a + b
-    static constexpr auto invert() {return simd::unary_minus;}  // log(1/exp(a)) = -a
-    static constexpr auto sum() {return simd::lse2;}             // log(sum(exp(a[:])))
+
+    static constexpr auto invert() {return simd::negate;}  // log(1/exp(a)) = -a
     static constexpr auto ldexp() {return first_arg();}
 
-    static bool prevent_overflow(Ignore) {return false;}
+    static constexpr T energy_scale(T const beta) {return -beta / log(2.0);}
+    static constexpr T boltz(T const energy, T const energy_scale) {return max(energy * energy_scale, zero());}
 
-    template <class M, class E, class F>
-    static auto set_element(M &m, E e, F &&rule) {return m = mantissa(fw<F>(rule), -e), False();}
+    static constexpr T truncate(T const factor) {return factor <= zero() ? -inf<T>() : factor;}
+
+    static constexpr T free_energy(T const factor, T const energy_scale) {return truncate(factor) * log(2.0);}
+    static constexpr T as_logarithm(T const factor) {return truncate(factor) * log(2.0);}
+    static constexpr T as_exponential(T const factor) {return exp2(factor);}
+    // template <class M, class E, class F>
+    // static auto set_element(M &m, E e, F &&rule) {return m = mantissa(fw<F>(rule), -e), False();}
+
+    static void adjust_exponential(T &value, real scale) {value += log2(scale);}
 };
 
 /// In the MFE ring, + is min() and * is plus()
+template <class T>
 struct MFE {
+    // static constexpr uint value = 1;
+    using value_type = T;
 
-    using logarithmic = True;
-    static constexpr auto zero() {return *::nupack::inf;}
-    static constexpr auto one() {return *::nupack::zero;}
+    static constexpr T log_zero() {return inf<T>();}
+    static constexpr T zero() {return inf<T>();}
+    static constexpr T one() {return 0;}
+
     static constexpr auto plus() {return simd::min;}
-    static constexpr auto plus_eq() {return simd::min_eq;}
     static constexpr auto times() {return simd::plus;}
-    static constexpr auto invert() {return simd::unary_minus;}
-    static constexpr auto sum() {return simd::minimum;}
+
+    static constexpr auto plus_eq() {return min_eq;}
+    static constexpr auto invert() {return simd::negate;}
+
+    static constexpr auto sum() {return simd::reduce_min;}
     static constexpr auto ldexp() {return first_arg();}
 
-    static bool prevent_overflow(Ignore) {return false;}
+    static constexpr bool valid(T const t) {
+        NUPACK_QUICK_REQUIRE(t, >, -inf<T>(), "Invalid MFE element result");
+        return true;
+    }
 
     template <class E, class F>
     static auto element_value(bool const &err, F &&rule, E e) {return mantissa(fw<F>(rule), -e);}
+
+    static constexpr T boltz(T const energy, Ignore) {return energy;}
+    static constexpr T free_energy(T const factor, Ignore) {return factor;}
+    static constexpr T energy_scale(Ignore) {return one();}
+    static constexpr T as_logarithm(T const t) {return t;}
 };
 
 /******************************************************************************************/
 
-}}
+}

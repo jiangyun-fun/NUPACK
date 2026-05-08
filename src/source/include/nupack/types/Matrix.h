@@ -14,7 +14,17 @@
 #include "../algorithms/Operators.h"
 #include "../algorithms/Utility.h"
 
-#define ARMA_DONT_PRINT_ERRORS
+// #define ARMA_DONT_PRINT_ERRORS
+#ifdef NUPACK_DEBUG
+#   if NUPACK_DEBUG == 1
+#       define ARMA_WARN_LEVEL 1
+#   endif
+#   if NUPACK_DEBUG == 2
+#       define ARMA_WARN_LEVEL 2
+#   endif
+#else
+#   define ARMA_WARN_LEVEL 0
+#endif
 #include <armadillo>
 
 namespace nupack {
@@ -105,8 +115,14 @@ std::array<usize, 3> strides(arma::Cube<T> const *t) {return {1u, t->n_rows, t->
 
 /******************************************************************************************/
 
-template <class T> constexpr auto re(T &&t) -> decltype(fw<T>(t).real()) {return fw<T>(t).real();}
-template <class T> constexpr auto re(T &&t) -> decltype(arma::real(fw<T>(t))) {return arma::real(fw<T>(t));}
+template <class T, NUPACK_IF(std::is_floating_point_v<T>)>
+constexpr T re(T &&t) {return t;}
+
+template <class T>
+constexpr auto re(T &&t) -> decltype(fw<T>(t).real()) {return fw<T>(t).real();}
+
+template <class T>
+constexpr auto re(T &&t) -> decltype(arma::real(fw<T>(t))) {return arma::real(fw<T>(t));}
 
 /******************************************************************************************/
 
@@ -308,6 +324,17 @@ void sparse_map(V const &idx, F &&f) {
 
 /******************************************************************************************/
 
+template <class M, class F>
+void for_each_element(M &&m, F &&f) {
+    auto dims = la::shape(m);
+    if constexpr(len(dims) == 1) for (auto i : range(dims[0])) f(m.at(i), i);
+    else if constexpr(len(dims) == 2) for (auto j : range(dims[1])) for (auto i : range(dims[0])) f(m.at(i, j), i, j);
+    else if constexpr(len(dims) == 3) for (auto s : range(dims[2])) for (auto j : range(dims[1])) for (auto i : range(dims[0])) f(m.at(i, j, s), i, j, s);
+    else static_assert(M::not_implemented);
+}
+
+/******************************************************************************************/
+
 template <class V>
 Mat<value_type_of<value_type_of<V>>> stack_columns(V const &v) {
     if (!len(v)) return {};
@@ -352,18 +379,13 @@ using la::real_csc;
 
 NUPACK_DETECT(has_n_elem, decltype(declval<T>().n_elem));
 
-template <class T> struct extents::length<T, void_if<is_arma<T> && !has_size<T> && has_n_elem<T>>> {
+template <class T> struct len_functor_t<T, void_if<is_arma<T> && !has_size<T> && has_n_elem<T>>> {
     constexpr auto operator()(T const &t) const {return t.n_elem;}
 };
 
-template <class T> struct ConvertConstant<T, size_constant<0>, void_if<is_arma<T>>> {
-    template <class ...Ts>
-    constexpr T operator()(Ts &&...ts) const {return T(fw<Ts>(ts)..., arma::fill::zeros);}
-
-    static constexpr bool ok = true;
+template <class T> struct exp_functor_t<T, void_if<is_arma<T>>> {
+    constexpr auto operator()(T const &t) const {return la::exp(t);}
 };
-
-static_assert(ConvertConstant<arma::Mat<double>::fixed<4,4>, size_constant<0>, void>::ok, "");
 
 template <class T> struct io::SingleLine<T, void_if<is_arma<T>>> : False {
     constexpr bool operator()(T const &) const {return false;}

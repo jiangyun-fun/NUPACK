@@ -1,8 +1,8 @@
 #include <nupack/design/Granularity.h>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 LevelSpecification EnsembleLevelSpecification::default_spec {};
 
 
-}}
+}

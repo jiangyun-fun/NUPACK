@@ -3,7 +3,7 @@
 #include "../standard/Vec.h"
 #include "../common/Error.h"
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 struct EnsemblePartition {
     small_vec<bool> mask;
@@ -12,7 +12,7 @@ struct EnsemblePartition {
     EnsemblePartition() = default;
 
     template <class C>
-    EnsemblePartition(vec<C> const &c, real deflate) :
+    EnsemblePartition(C const &c, real deflate) :
             mask(indirect_view(c, [](auto const &x) { return x.is_on_target(); })),
             deflate(deflate) {};
 
@@ -83,4 +83,4 @@ struct EnsembleLevelSpecification {
     NUPACK_REFLECT(EnsembleLevelSpecification, per_complex);
 };
 
-}}
+}

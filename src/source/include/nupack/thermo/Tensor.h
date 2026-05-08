@@ -1,309 +1,414 @@
 #pragma once
-#include "SIMD.h"
-#include "../iteration/Range.h"
-#include "../reflect/Reflection.h"
-#include "../common/Error.h"
-#include "../standard/Vec.h"
-#include <ios>
-#include <iomanip>
+#include "../math/SIMD.h"
+#include "Common.h"
 
-namespace nupack {
-
-namespace thermo {
-
-template <class T, NUPACK_IF(can_call<T>)>
-decltype(auto) value_of(T &&t) noexcept {return t();}
-
-template <class T, NUPACK_IF(!can_call<T> && !can_dereference<T>)>
-decltype(auto) value_of(T &&t) noexcept {return fw<T>(t);}
-
-template <class T, NUPACK_IF(can_dereference<T>)>
-decltype(auto) value_of(T t) noexcept {return *t;}
+namespace nupack::thermo {
 
 /******************************************************************************************/
 
-template <class T, std::size_t N> class Tensor;
-NUPACK_DEFINE_TEMPLATE(is_tensor, Tensor, class, std::size_t);
-NUPACK_DEFINE_TEMPLATE(is_like_tensor, Tensor, class, std::size_t);
-
-/******************************************************************************************/
-
-// template <class T, class U, class=void>
-// struct ConvertTensor {
-//     // template <class O, class M>
-//     // static O make(M &&m) {return cast_container<O>(fw<M>(m));}
-
-//     template <class B, class E, class O>
-//     static void copy(B b, E e, O out) noexcept {std::copy(b, e, out);}
-// };
-
-// /// copy values from a container of type I to an output of value_type O
-// template <class T, class U, class B, class E, class Out>
-// void copy_tensor(B b, E e, Out out) {ConvertTensor<T, U>::copy(b, e, out);}
-
-// /// make an O from
-// template <class O, class T, class U, class I>
-// O make_tensor(I &&i) {return ConvertTensor<T, U>::template make<O>(fw<I>(i));}
-
-/******************************************************************************************/
-
-/// Base class for a non subview tensor holds the data in a vec
-template <class T>
-struct TensorBase {
-    using data_type = vec<T, simd::allocator<T>>;
-    using iterator = decltype(declref<data_type>().begin());
-    using const_iterator = decltype(declref<data_type const>().begin());
-    using element_type = T;
-    using value_type = T;
-
-    data_type storage;
-    NUPACK_REFLECT(TensorBase, storage);
-
-    TensorBase() = default;
-    explicit TensorBase(iseq n, T t={}) : storage(n, t) {}
-    explicit TensorBase(data_type &&data) noexcept : storage(std::move(data)) {}
-
-    template <class U>
-    explicit TensorBase(TensorBase<U> const &u) : storage(view(u.storage)) {}
-
-    template <class V>
-    void assign(V const &v) noexcept {storage.assign(begin_of(v), end_of(v));}
-
-    template <class B, class E, class O>
-    static void read_span(B b, E e, O o) {std::copy(b, e, o);}
-
-    auto data() const noexcept {return storage.begin();}
-
-    auto begin() const noexcept {return storage.begin();}
-    auto begin() noexcept {return storage.begin();}
-
-    auto end() noexcept {return storage.end();}
-    auto end() const noexcept {return storage.end();}
-
-    auto rbegin() const noexcept {return storage.rbegin();}
-    auto rend() const noexcept {return storage.rend();}
-
-    template <class I, class C>
-    static void copy_out(I const &b, I const &e, C &out) {std::copy(b, e, std::back_inserter(out));}
-
-    void resize(iseq n) {storage.resize(n);}
-
-    void fill(T t) noexcept {contiguous_fill(storage.data(), storage.data() + storage.size(), t);}
-
-    void fill(T t, span s) noexcept {contiguous_fill(storage.data()+s.start(), storage.data()+s.stop(), t);}
-};
-
-/******************************************************************************************/
-
-/// a struct to allow x(i) access instead of x[i] for iterators
-template <class T> struct Offset {
-    T iter;
-    template <class I> decltype(auto) operator()(I &&i) const {return iter[fw<I>(i)];}
-};
-
-/// make a contiguous view starting at some iterator
-template <class It>
-auto offset_view(It it, span s) noexcept {return view(it + s.start(), it + s.stop());}
-
-/******************************************************************************************/
-
-/// 1 dimensional tensor
-/// Tensor<overflow<T>, 1>
-template <class T>
-class Tensor<T, 1> : public TensorBase<T>, MemberComparable {
-public:
-    using base_type = TensorBase<T>;
-    Tensor() = default;
-    explicit Tensor(iseq n) : TensorBase<T>(n) {}
-
-    template <class U> Tensor(Tensor<U, 1> const &u) noexcept : TensorBase<T>(u) {}
-    template <class U> Tensor(Tensor<U, 1> &&u) noexcept : TensorBase<T>(std::move(u)) {}
-
-    auto operator()(iseq i) const noexcept {return base_type::begin() + i;}
-    auto operator()(iseq i) noexcept {return base_type::begin() + i;}
-
-    auto operator()(span i) const noexcept {return offset_view(base_type::begin(), i);}
-    auto operator()(span i) noexcept {return offset_view(base_type::begin(), i);}
-
-    friend std::ostream & operator<<(std::ostream &os, Tensor const &t) noexcept {
-        dump_os(os, view(t.begin(), t.end()));
-        return os;
+template <class V>
+decltype(auto) flat_index(V &&v, Index i) noexcept(!Debug) {
+    if constexpr(Debug) {
+        if (i >= std::size(v)) NUPACK_ERROR("Index too high", i, std::size(v));
+        if (i < 0) NUPACK_ERROR("Index too low", i, 0);
     }
-
-    void resize(iseq n) {base_type::resize(n);}
-
-    iseq size() const noexcept {return base_type::end() - base_type::begin();}
-    std::array<iseq, 1> shape() const noexcept {return {size()};}
-    constexpr auto strides() const noexcept {return std::array<iseq, 1>{1};}
-};
-
-/******************************************************************************************/
-
-/// 2-dimensional tensor subview
-template <class T>
-class Tensor<T &, 2> {
-    using iterator = decltype(declref<copy_qualifier<T, Tensor<decay<T>, 2>>>().begin());
-    using const_iterator = decltype(declref<Tensor<decay<T>, 2> const>().begin());
-    using base_type = TensorBase<T>;
-    std::array<iseq, 2> dims;
-    iterator m_data;
-    iseq length;
-public:
-    using element_type = T &;
-    using value_type = decay<T>;
-
-    auto iter(iseq i, iseq j) const noexcept {return m_data + i * length + j;}
-
-    constexpr auto strides() const noexcept {return std::array<iseq, 2>{length, 1};}
-    auto data() const noexcept {return m_data;}
-
-    NUPACK_REFLECT(Tensor, dims, length, m_data);
-
-    Tensor(iterator b, iseq i, iseq j, iseq l) : dims{{i, j}}, m_data(b), length(l) {}
-    Tensor(copy_qualifier<T, Tensor<T, 2>> &all) noexcept : dims(all.shape()), m_data(begin_of(all)), length(all.shape()[1]) {}
-
-    auto operator()(iseq i, iseq j) const noexcept {return const_iterator(iter(i, j));}
-    auto operator()(iseq i, iseq j) noexcept {return iter(i, j);}
-
-    auto operator()(iseq i, span j) noexcept {return offset_view(iter(i, 0), j);}
-    auto operator()(iseq i, span j) const noexcept {return offset_view(const_iterator(iter(i, 0)), j);}
-
-    auto operator()(span i, span j) const noexcept {return Tensor<T &, 2>(iter(i.start(), j.start()), len(i), len(j), length);}
-    /// TODO: improve formatting here
-    friend std::ostream & operator<<(std::ostream &os, Tensor const &t) {
-        std::ios::fmtflags f(os.flags());
-        os << std::setprecision(6);
-        if (product(t.dims)) for (auto i : range(t.dims[0])) {
-            os << "\n";
-            for (auto j : range(t.dims[1])) dump_os(os, std::setw(11), *t(i, j), ", ");
-        }
-        os.flags(f);
-        return os;
-    }
-    /// Make a copy of the subview contents
-    auto write(span i, span j) const {NUPACK_ERROR("should not be used");}
-    /// Read in values from another matrix - R should be output of write()
-    template <class R>
-    void read(span i, span j, R const &r) {NUPACK_ERROR("should not be used");}
-
-    auto shape() const noexcept {return dims;}
-    auto size() const noexcept {return dims[0];}
-};
-
-template <class T, class U>
-void copy_tensor_block(Tensor<T, 2> const &from, span i, span j, Tensor<U, 2> &to, span k, span l) {
-    NUPACK_REQUIRE(i.stop(), <=, from.shape()[0]);
-    NUPACK_REQUIRE(j.stop(), <=, from.shape()[1]);
-    NUPACK_REQUIRE(k.stop(), <=, to.shape()[0]);
-    NUPACK_REQUIRE(l.stop(), <=, to.shape()[1]);
-    NUPACK_REQUIRE(i.start(), <=, i.stop());
-    NUPACK_REQUIRE(j.start(), <=, j.stop());
-    NUPACK_REQUIRE(k.start(), <=, k.stop());
-    NUPACK_REQUIRE(l.start(), <=, l.stop());
-    zip(i, k, [&](auto a, auto b) {std::copy(from.iter(a, j.start()), from.iter(a, j.stop()), to.iter(b, l.start()));});
+    // using T = std::remove_reference_t<decltype(v.begin()[i])>;
+    // if constexpr(std::is_const_v<T> && std::is_arithmetic_v<std::decay_t<T>>)
+    //     NUPACK_QUICK_ASSERT(std::isfinite(v.begin()[i]), v.begin()[i], i);
+    return v.begin()[i];
 }
 
 /******************************************************************************************/
 
-/// 2D tensor (not subview)
-template <class T>
-class Tensor<T const, 2>;
-
-template <class T>
-class Tensor<T, 2> : public TensorBase<T>, MemberComparable {
-    using base_type = TensorBase<T>;
-    std::array<iseq, 2> dims = {0, 0};
-
-
-public:
-    NUPACK_EXTEND_REFLECT(Tensor, base_type, dims);
-
-    auto iter(iseq i, iseq j) noexcept {return base_type::begin() + i * dims[1] + j;}
-    auto iter(iseq i, iseq j) const noexcept {return base_type::begin() + i * dims[1] + j;}
-
-    Tensor() = default;
-
-    template <class U>
-    Tensor(Tensor<U, 2> const &u) : base_type(u), dims(u.shape()) {}
-
-    template <class U>
-    explicit Tensor(iseq m, iseq n, U t) : TensorBase<T>(m * n, t), dims{{m, n}} {}
-
-    explicit Tensor(iseq m, iseq n) : TensorBase<T>(m * n), dims{{m, n}} {}
-
-    explicit Tensor(typename TensorBase<T>::data_type &&data, iseq m, iseq n) noexcept : TensorBase<T>(std::move(data)), dims{{m, n}} {}
-
-    auto operator()(iseq i, iseq j) const noexcept {return base_type::begin() + (i * dims[1] + j);}
-    auto operator()(iseq i, iseq j) noexcept {return base_type::begin() + (i * dims[1] + j);}
-
-    auto operator()(iseq i, span j) const noexcept {return offset_view(iter(i, 0), j);}
-    auto operator()(iseq i, span j) noexcept {return offset_view(iter(i, 0), j);}
-
-    auto operator()(span i, span j) const noexcept {return Tensor<T const &, 2>(iter(i.start(), j.start()), len(i), len(j), dims[1]);}
-    auto operator()(span i, span j) noexcept {return Tensor<T &, 2>(iter(i.start(), j.start()), len(i), len(j), dims[1]);}
-    /// TODO: improve formatting here
-    friend std::ostream & operator<<(std::ostream &os, Tensor const &t) {
-        std::ios::fmtflags f(os.flags());
-        os << std::setprecision(6);
-        if (product(t.dims)) for (auto i : range(t.dims[0])) {
-            os << "\n";
-            for (auto j : range(t.dims[1])) dump_os(os, std::setw(11), *t(i, j), ", ");
-        }
-        os.flags(f);
-        return os;
-    }
-    /// Make a copy of some subblock of the matrix
-    auto write(span i, span j) const {
-        NUPACK_REQUIRE(i.start(), <=, i.stop());
-        NUPACK_REQUIRE(j.start(), <=, j.stop());
-        NUPACK_REQUIRE(i.stop(), <=, dims[0]);
-        NUPACK_REQUIRE(j.stop(), <=, dims[1]);
-
-        typename Tensor<T, 2>::data_type data;
-        for (auto a : i) base_type::copy_out(iter(a, j.start()), iter(a, j.stop()), data);
-        return Tensor<T, 2>{std::move(data), len(i), len(j)};
-    }
-
-    /// Read values into some subblock of the matrix
-    template <class M>
-    void read(span i, span j, M const &m) {
-        NUPACK_REQUIRE(len(i) * len(j), ==, product(m.shape()));
-        auto in = begin_of(m);
-        for (auto a : i) {base_type::read_span(in, in + len(j), iter(a, j.start())); in += len(j);}
-        NUPACK_ASSERT(in == end_of(m), i, j);
-    }
-
-    template <class V>
-    void fill_subcolumn(iseq i, span j, V v) noexcept {base_type::fill(v, {i * dims[1] + j.start(), i * dims[1] + j.stop()});}
-
-    void resize(iseq m, iseq n) {
-        dims = {m, n};
-        base_type::resize(m * n);
-    }
-
-    auto shape() const noexcept {return dims;}
-    constexpr auto strides() const noexcept {return std::array<iseq, 2>{dims[1], 1};}
-    auto size() const noexcept {return dims[0];}
-
-    template <class P>
-    auto indices_of(P && p) const noexcept {return std::array<iseq, 2>{};}
-
-    auto indices_of(typename base_type::const_iterator t) const noexcept {
-        return unpack_as<std::array<iseq, 2>>(div<false>(t - base_type::data(), dims[1]));
-    }
-
-    auto indices_of(typename base_type::iterator t) const noexcept {
-        return unpack_as<std::array<iseq, 2>>(div<false>(t - base_type::data(), dims[1]));
-    }
-
-    template <class P>
-    constexpr bool has(P const &p) const noexcept {return false;}
-
-    auto has(typename base_type::const_iterator p) const noexcept {return base_type::data() <= p && p < base_type::data() + product(dims);}
-    auto has(typename base_type::iterator p) const noexcept {return base_type::data() <= p && p < base_type::data() + product(dims);}
-};
-
+template <class V, int N>
+decltype(auto) flat_index(V &&v, simd::Chunk<N> i) {return simd::load(i, v.data());}
 
 /******************************************************************************************/
 
-}}
+template <class V>
+auto flat_index(V &&v, span const &s) noexcept(!Debug);
+
+/******************************************************************************************/
+
+template <class T>
+struct Slice : View<T> {
+    using View<T>::View;
+
+    T data() const {return this->begin();}
+
+    template <int N>
+    decltype(auto) operator()(simd::Chunk<N> const &i) const {return flat_index(*this, i);}
+
+    decltype(auto) operator()(Index i) const {return flat_index(*this, i);}
+
+    auto operator()(span const &i) const {return flat_index(*this, i);}
+
+    void fill(value_type_of<T> const &t) const {::nupack::fill(*this, t);}
+
+    template <class U>
+    void set(Index i, U &&u) const {flat_index(*this, i) = fw<U>(u);}
+};
+
+/******************************************************************************************/
+
+template <class V>
+auto flat_index(V &&v, span const &s) noexcept(!Debug) {
+    if constexpr(Debug) {
+        if (s.stop() > std::size(v)) NUPACK_ERROR("Span too high", s.start(), s.stop(), std::size(v));
+        if (s.start() < 0) NUPACK_ERROR("Span too low", s.start(), s.stop(), 0);
+    }
+    using Iter = decltype(v.data() + s.start());
+    auto r = Slice<Iter>(v.data() + s.start(), v.data() + s.stop());
+    // for (auto &&x : r) if (std::is_const_v<std::remove_reference_t<decltype(x)>>) NUPACK_QUICK_ASSERT(std::isfinite(x), x);
+    return r;
+}
+
+/******************************************************************************************/
+
+
+template <class R, class T>
+auto addressed_element(R const &recursion, T const &t, Index i, Index j);
+
+template <class R, class T>
+auto addressed_element(R const &recursion, T const &t, Index i, span j);
+
+template <class R, class T>
+auto addressed_element(R const &recursion, T const &t, span i, Index j);
+
+template <class R>
+struct Address {
+    Index i, j;
+    R recursion;
+    NUPACK_REFLECT(Address, i, j, recursion);
+};
+
+template <class T, class R>
+struct AddressedElement : Addressed {
+    T value;
+    Index i, j;
+    R recursion;
+
+    Address<R> address() const {return {i, j, recursion};}
+
+    AddressedElement(R const &r, T t, Index i, Index j) : value(t), i(i), j(j), recursion(r) {}
+};
+
+template <class T, class R>
+struct AddressedRow {
+    T value;
+    Index i;
+    span j;
+    R recursion;
+
+    auto size() const {return value.size();}
+
+    AddressedRow(R const &r, T t, Index i, span j) : value(t), i(i), j(j), recursion(r) {}
+
+    auto operator()(Index k) const {return addressed_element(recursion, value(k), i, j.start() + k);}
+};
+
+template <class T, class R>
+struct AddressedColumn {
+    T value;
+    span i;
+    Index j;
+    R recursion;
+
+    auto operator()(Index k) const {return addressed_element(recursion, value(k), i.start() + k, j);}
+
+    auto size() const {return value.size();}
+
+    AddressedColumn(R const &r, T t, span i, Index j) : value(t), i(i), j(j), recursion(r) {}
+};
+
+/******************************************************************************************/
+
+template <class R, class T>
+auto addressed_element(R const &recursion, T const &t, Index i, Index j) {return AddressedElement<T, R>(recursion, t, i, j);}
+
+template <class R, class T>
+auto addressed_element(R const &recursion, T const &t, Index i, span j) {return AddressedRow<T, R>(recursion, t, i, j);}
+
+template <class R, class T>
+auto addressed_element(R const &recursion, T const &t, span i, Index j) {return AddressedColumn<T, R>(recursion, t, i, j);}
+
+/******************************************************************************************/
+
+/// Holds a full rectangle of data indexable (i, j), sliceable on the first index
+struct Rectangle : MemberComparable {
+    std::array<Index, 2> shape = {0, 0};
+    NUPACK_REFLECT(Rectangle, shape);
+
+    void check(Index i, Index j) const {
+        NUPACK_QUICK_REQUIRE(i, >=, 0);
+        NUPACK_QUICK_REQUIRE(j, >=, 0);
+        NUPACK_QUICK_REQUIRE(i, <, shape[0], i, j, shape);
+        NUPACK_QUICK_REQUIRE(j, <, shape[1], i, j, shape);
+    }
+    void check(Index i, span j) const {if (!j.empty()) {check(i, j.start()); check(i, j.stop()-1);}}
+    void check(span i, Index j) const {if (!i.empty()) {check(i.start(), j); check(i.stop()-1, j);}}
+
+    template <int N>
+    constexpr auto operator()(Index i, simd::Chunk<N> j) const {return i * shape[1] + j;}
+
+    constexpr Index operator()(Index i, Index j) const {check(i, j); return i * shape[1] + j;}
+    constexpr span operator()(Index i, span j) const {check(i, j); return i * shape[1] + j;}
+
+    std::size_t resize(std::size_t i, std::size_t j) {shape[0] = i; shape[1] = j; return i * j;}
+    std::array<Index, 1> positions_to_set(Index i, Index j) const {return {(*this)(i, j)};}
+};
+
+/// Indexable as (i, j) where i < j. may be sliced on either index
+struct SpanBoth : Rectangle {
+    constexpr Index operator()(Index i, Index j) const {check(i, j); return i * shape[1] + j;}
+    constexpr span operator()(Index i, span j) const {check(i, j); return i * shape[1] + j;}
+    constexpr span operator()(span i, Index j) const {check(i, j); return (shape[1] + j) * shape[0] + i;}
+
+    template <int N>
+    constexpr auto operator()(simd::Chunk<N> i, Index j) const {return j * shape[0] + i;}
+    template <int N>
+    constexpr auto operator()(Index i, simd::Chunk<N> j) const {return i * shape[0] + j;}
+
+    std::size_t resize(std::size_t i, std::size_t j) {shape[0] = i; shape[1] = j; return 2 * i * j;}
+    std::array<Index, 2> positions_to_set(Index i, Index j) const {return {i * shape[1] + j, (shape[1] + j) * shape[0] + i};}
+};
+
+/// Indexable as (i, j) where i < j. may be sliced on the first index.
+struct SpanFirst : Rectangle {
+    constexpr Index operator()(Index i, Index j) const {check(i, j); return j * shape[0] + i;}
+    constexpr span operator()(span i, Index j) const {check(i, j); return j * shape[0] + i;}
+
+    std::array<Index, 1> positions_to_set(Index i, Index j) const {return {(*this)(i, j)};}
+};
+
+struct SpanSecond : Rectangle {};
+
+/******************************************************************************************/
+
+extern std::atomic<std::size_t> AllocatedBytes;
+
+template <class T>
+T* allocate_tensor(std::size_t n) {
+    AllocatedBytes.fetch_add(sizeof(T) * n, std::memory_order_relaxed);
+    return simd::allocator<T>().allocate(n);
+}
+
+template <class T>
+void deallocate_tensor(T *t, std::size_t n) noexcept {
+    AllocatedBytes.fetch_sub(sizeof(T) * n, std::memory_order_relaxed);
+    simd::allocator<T>().deallocate(t, n);
+}
+
+template <class T>
+class SharedArray : public TotallyOrdered {
+    std::shared_ptr<T> ptr;
+    std::size_t length = 0;
+
+public:
+    // static_assert(std::is_scalar_v<T>);
+    using value_type = T;
+
+
+    NUPACK_REFLECT(SharedArray, ptr, length);
+
+    struct Deleter {
+        std::size_t n;
+        void operator()(T *t) const {deallocate_tensor(t, n);}
+    };
+
+    bool operator<(SharedArray const &a) const {
+        return ptr != a.ptr && std::lexicographical_compare(begin(), end(), a.begin(), a.end());
+    }
+
+    bool operator==(SharedArray const &a) const {
+        return ptr == a.ptr || std::equal(begin(), end(), a.begin(), a.end());
+    }
+
+    SharedArray() = default;
+    SharedArray(SharedArray &&) noexcept = default;
+    SharedArray & operator=(SharedArray &&) noexcept = default;
+
+    SharedArray(SharedArray const &a) {
+        allocate(a.size());
+        std::copy(a.begin(), a.end(), begin());
+    }
+
+    SharedArray & operator=(SharedArray const &a) {
+        allocate(a.size());
+        std::copy(a.begin(), a.end(), begin());
+        return *this;
+    }
+
+    std::shared_ptr<T const> pointer() const {return ptr;}
+    std::shared_ptr<T> pointer() {return ptr;}
+
+    bool allocate(std::size_t n) {
+        if (n != length) {
+            if (n) ptr.reset(allocate_tensor<T>(n), Deleter{n});
+            else ptr.reset();
+            length = n;
+
+            if (!Release) {
+                if constexpr(std::is_floating_point_v<T>) fill(std::numeric_limits<T>::quiet_NaN());
+                if constexpr(std::is_integral_v<T>) fill(std::numeric_limits<T>::max());
+            }
+
+            return true;
+        } else return false;
+    }
+
+    void fill(T const &t) noexcept {std::fill(begin(), end(), t);}
+
+    T *data() {return ptr.get();}
+    T const *data() const {return ptr.get();}
+
+    T * begin() {return ptr.get();}
+    T * end() {return begin() + size();}
+
+    T const * begin() const {return ptr.get();}
+    T const * end() const {return begin() + size();}
+
+    auto size() const {NUPACK_QUICK_ASSERT(!length || (ptr && length), length); return length;}
+    explicit operator bool() const {return bool(ptr);}
+
+    void clear() noexcept {ptr.reset(); length = 0;}
+};
+
+/******************************************************************************************/
+
+template <class From, class To, class SFINAE=void>
+struct ConvertArray {
+    template <class Converter>
+    static void copy(SharedArray<From> const &m, SharedArray<To> &out, Converter const &c) {
+        zip(m, out, c);
+    }
+};
+
+template <class From, class To, class Converter>
+void convert_array(SharedArray<From> const &m, SharedArray<To> &out, Converter const &c) {
+    if constexpr(std::is_same_v<From, To>) {
+        out = m;
+    } else {
+        out.allocate(m.size());
+        ConvertArray<From, To>::copy(m, out, c);
+    }
+}
+
+/******************************************************************************************/
+
+struct MatrixBase {};
+
+/******************************************************************************************/
+
+template <class T, class Layout=Rectangle>
+struct Matrix : MatrixBase, MemberComparable {
+    using value_type = T;
+    SharedArray<T> storage;
+    Layout layout;
+
+    NUPACK_REFLECT(Matrix, storage, layout);
+
+    Matrix() = default;
+    Matrix(std::size_t i, std::size_t j) {allocate(i, j);}
+
+    auto shape() const {return layout.shape;}
+
+    template <class U, class Converter>
+    void assign_and_clear(Matrix<U, Layout> &&m, Converter const &c) {layout = m.layout; convert_array(m.storage, storage, c); m.clear();}
+
+    // template <class U>
+    // explicit Matrix(Matrix<U, Layout> m) {assign_and_clear(std::move(m));}
+
+    template <class I, class J>
+    decltype(auto) operator()(I const &i, J const &j) {
+        return flat_index(storage, layout(i, j));
+    }
+
+    template <class I, class J>
+    decltype(auto) operator()(I const &i, J const &j) const {
+        if constexpr(Debug) try {return flat_index(storage, layout(i, j));} catch (...) {BEEP(*this, i, j); throw;}
+        else return flat_index(storage, layout(i, j));
+    }
+
+    template <class R, class I, class J>
+    auto addressed(R const &r, I const &i, J const &j) const {return addressed_element(r, (*this)(i, j), i, j);}
+
+    bool resize(std::size_t i, std::size_t j) {return storage.allocate(layout.resize(i, j));}
+
+    void fill(T const &t) {storage.fill(t);}
+
+    void allocate(std::size_t i, std::size_t j) {resize(i, j);}
+
+    auto corner(bool i, bool j) const {return (*this)(i ? layout.shape[0] - 1u : 0u, j ? layout.shape[1] - 1u : 0u);}
+
+    friend std::ostream & operator<<(std::ostream &os, Matrix const &m) {
+        if (!all_of(m.shape())) return os << "[]";
+        std::ios::fmtflags f(os.flags());
+        os << std::setprecision(6) << "[\n";
+        for (auto i : range(m.shape()[0])) {
+            if (i) os << ",\n";
+            os << "    [";
+            dump_os(os, std::setw(11), const_cast<Matrix&>(m)(i, 0));
+            for (auto j : range(1, m.shape()[1])) dump_os(os << ", ", std::setw(11), const_cast<Matrix&>(m)(i, j));
+            os << ']';
+        }
+        os << "\n]";
+        os.flags(f);
+        return os;
+    }
+
+    auto begin() {return storage.begin();}
+    auto end() {return storage.end();}
+    auto begin() const {return storage.begin();}
+    auto end() const {return storage.end();}
+    void clear() noexcept {storage.clear(); layout = Layout();}
+};
+
+/******************************************************************************************/
+
+template <class T>
+struct Column {
+    SharedArray<T> storage;
+    NUPACK_REFLECT(Column, storage);
+
+    template <class I>
+    decltype(auto) operator()(I const &i) const noexcept {return flat_index(storage, i);}
+
+    template <class I>
+    decltype(auto) operator()(I const &i) noexcept {return flat_index(storage, i);}
+
+    void resize(std::size_t n) {storage.allocate(n);}
+
+    void fill(T const &t) {std::fill(storage.begin(), storage.end(), t);}
+
+    auto begin() {return storage.begin();}
+    auto end() {return storage.end();}
+    auto begin() const {return storage.begin();}
+    auto end() const {return storage.end();}
+    void clear() noexcept {storage.clear();}
+};
+
+/******************************************************************************************/
+
+}
+
+namespace nupack::io {
+    template <class T> struct PrintAsContainer<thermo::Slice<T>> : PrintAsList {};
+}
+
+namespace nupack::memory {
+
+template <class T>
+struct custom<thermo::SharedArray<T>> : True {};
+
+template <class T>
+struct impl<thermo::SharedArray<T>> {
+    std::size_t operator()(thermo::SharedArray<T> const &m) const {
+        return sizeof(m) + sizeof(T) * m.size();
+    }
+    void release(thermo::SharedArray<T> &m) const {m.clear();}
+};
+
+/******************************************************************************************/
+
+}

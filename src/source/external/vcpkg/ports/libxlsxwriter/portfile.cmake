@@ -1,27 +1,28 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO jmcnamara/libxlsxwriter
-    REF RELEASE_0.9.4
-    SHA512 d7bc319e6b9cd2ad6aaa2f3eb6fdce1c5bcc1d5af23ffb3413e29760191f6aed41f836aaa71a322efe7966f3753a6d8a01cb0b403d682b13a6a3734a87cc12ba
-	HEAD_REF master
+    REF "v${VERSION}"
+    SHA512 588d939c3ba9758debffbe675580d2013c0e18ff8cbfdf2b4aaad28a5a013c579ca06206c2b0446b25203db48e59af8a16168e32f265e0939f046b18bf598803
+    HEAD_REF main
 )
+file(REMOVE_RECURSE "${SOURCE_PATH}/third_party/minizip")
 
+set(USE_WINDOWSSTORE OFF)
 if (VCPKG_TARGET_IS_UWP)
-  set(USE_WINDOWSSTORE ON)
-else()
-  set(USE_WINDOWSSTORE OFF)
+    set(USE_WINDOWSSTORE ON)
 endif()
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-	PREFER_NINJA
-	OPTIONS -DWINDOWSSTORE=${USE_WINDOWSSTORE}
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        -DUSE_SYSTEM_MINIZIP=1
+        -DWINDOWSSTORE=${USE_WINDOWSSTORE}
 )
 
-vcpkg_install_cmake()
-
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
-
+vcpkg_cmake_install()
+vcpkg_fixup_pkgconfig()
 vcpkg_copy_pdbs()
 
-file(INSTALL ${SOURCE_PATH}/License.txt DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/License.txt")

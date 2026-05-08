@@ -35,9 +35,9 @@ class Options:
     delta_min: float
     delta_max: float
     orthogonalize: bool
-    method: int
+    method: str
 
-    def __init__(self, delta_max=1000.0, delta_min=1e-12, max_iters=10000, tolerance=1e-08, method=1, orthogonalize=True, _fun_=None):
+    def __init__(self, delta_max=1000.0, delta_min=1e-12, max_iters=10000, tolerance=1e-08, method='cd', orthogonalize=True, _fun_=None):
         '''
         Initialize solving options from specified keywords:
         - max_iters: maximum number of iterations
@@ -46,12 +46,9 @@ class Options:
         - delta_max: maximum trust region radius
         - orthogonalize: whether or not to orthogonalize the input coefficient matrix
         - method: initialization
-            0. fit method (not supported)
-            1. coordinate descent
-            2. initialization from uniform potentials
-            3. initialization from given concentrations
-            4. initialization from non-negative least squares solution
-            5. initialization from absolute value of least squares solution
+            'fit': fit method (experimental, not very supported)
+            'cd': coordinate descent method based on eigendecomposition
+            'dogleg': dogleg trust region method
         '''
         _fun_(self)
         self.max_iters = max_iters
@@ -59,7 +56,7 @@ class Options:
         self.delta_min = delta_min
         self.delta_max = delta_max
         self.orthogonalize = orthogonalize
-        self.set_method(int(method))
+        self.set_method(str(method))
 
 ################################################################################
 

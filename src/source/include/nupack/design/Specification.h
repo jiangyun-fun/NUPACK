@@ -1,139 +1,179 @@
 #pragma once
 #include "Designer.h"
 #include "Weights.h"
+#include "nupack/design/Objectives.h"
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 /** @brief specification convertible to CompConstraint or IdentConstraint */
-struct DualListSpec {
-    vec<string> left;
-    vec<string> right;
+struct CompareConstraint {
+    vec<NamedDomain> left; // name of left domains
+    vec<NamedDomain> right; // name of right domains
 
     std::pair<vec<int>, vec<int>> get_variables(DesignSequence const &) const;
+    void replace(DomainMap const &map) {map.apply(left); map.apply(right);}
 
-    NUPACK_REFLECT(DualListSpec, left, right);
+    template <class F>
+    void register_definitions(F const &f, Ignore) const {
+        for (auto const &d : left) f(d);
+        for (auto const &d : right) f(d);
+    }
+
+    CompareConstraint() = default;
+
+    CompareConstraint(vec<NamedDomain> l, vec<NamedDomain> r)
+        : left(std::move(l)), right(std::move(r)) {}
+
+    void check_constraint() const;
+    NUPACK_REFLECT(CompareConstraint, left, right);
 };
+
+
+struct ComplementarityConstraint : CompareConstraint {
+    using base_type = CompareConstraint;
+
+    bool wobble_mutations = false;
+
+    NUPACK_EXTEND_REFLECT(ComplementarityConstraint, base_type, wobble_mutations);
+
+    ComplementarityConstraint() = default;
+
+    ComplementarityConstraint(vec<NamedDomain> l, vec<NamedDomain> r, bool wobble=false)
+        : CompareConstraint(std::move(l), std::move(r)), wobble_mutations(wobble) {}
+
+    void implement_hard(DesignSequence &, Model<> const &) const;
+};
+
+
+struct MatchConstraint : CompareConstraint {
+    using base_type = CompareConstraint;
+    using base_type::base_type;
+
+    void implement_hard(DesignSequence &, Ignore) const;
+};
+
+struct PairingConstraint : CompareConstraint {
+    using base_type = CompareConstraint;
+    using base_type::base_type;
+
+    void implement_hard(DesignSequence &, Model<> const &) const;
+};
+
 
 
 /** @brief specification convertible to PatternConstraint */
-struct PatternSpec {
-    vec<string> domains;
-    string pattern;
+struct PatternConstraint {
+    vec<NamedDomain> domains; // names of domains
+    DomainList patterns; // pattern to match
+    real weight = 1;
 
-    void add_constraint(DesignSequence &) const;
+    void implement_hard(DesignSequence &, Ignore) const;
+    void check_constraint() const;
+    void replace(DomainMap const &map) {map.apply(domains);}
 
-    NUPACK_REFLECT(PatternSpec, domains, pattern);
+    template <class F>
+    void register_definitions(F const &f, Ignore) const {for (auto const &d : domains) f(d);}
+
+    NUPACK_REFLECT(PatternConstraint, domains, patterns, weight);
 };
 
 
-struct DiversitySpec {
-    vec<string> domains;
-    int word_length;
-    int min_nucleotide_types;
+struct DiversityConstraint {
+    vec<NamedDomain> domains;
+    std::uint32_t word_length;
+    std::uint32_t min_nucleotide_types;
 
-    void add_constraint(DesignSequence &) const;
+    void implement_hard(DesignSequence &, Ignore) const;
+    void check_constraint() const;
+    void replace(DomainMap const &map) {map.apply(domains);}
 
-    NUPACK_REFLECT(DiversitySpec, domains, word_length, min_nucleotide_types);
+    template <class F>
+    void register_definitions(F const &f, Ignore) const {for (auto const &d : domains) f(d);}
+
+    NUPACK_REFLECT(DiversityConstraint, domains, word_length, min_nucleotide_types);
 };
 
 
-/** @brief specification convertible to WordConstraint */
-struct WordSpec {
-    vec<string> domains;
-    vec<vec<string>> comparisons;
+/** @brief specification convertible to LibraryConstraint */
+struct LibraryConstraint {
+    vec<NamedDomain> domains; // domain names
+    vec<DomainList> comparisons;
 
-    void add_constraint(DesignSequence &) const;
+    void replace(DomainMap const &map) {map.apply(domains);}
+    void implement_hard(DesignSequence &, Ignore) const;
+    void check_constraint() const;
 
-    NUPACK_REFLECT(WordSpec, domains, comparisons);
+    template <class F>
+    void register_definitions(F const &f, Ignore) const {for (auto const &d : domains) f(d);}
+
+    NUPACK_REFLECT(LibraryConstraint, domains, comparisons);
+};
+
+// This is identical to Library but only length 1...
+struct WindowConstraint : LibraryConstraint {
+    WindowConstraint() = default;
+
+    void check_constraint() const;
+
+    WindowConstraint(vec<NamedDomain> d, DomainList c)
+        : LibraryConstraint{std::move(d), {std::move(c)}} {}
 };
 
 
 /** @brief specification convertible to MatchConstraint */
-struct SimilaritySpec {
-    vec<string> domains;
-    string reference;
-    std::pair<real, real> range;
+struct SimilarityConstraint {
+    vec<NamedDomain> domains;
+    Domain reference;
+    same_pair<real> range;
+    real weight = 1;
 
-    void add_constraint(DesignSequence &) const;
+    void implement_hard(DesignSequence &, Ignore) const;
+    void check_constraint() const;
 
-    NUPACK_REFLECT(SimilaritySpec, domains, reference, range);
+    template <class F>
+    void register_definitions(F const &f, Ignore) const {for (auto const &d : domains) f(d);}
+    void replace(DomainMap const &map) {map.apply(domains);}
+
+    NUPACK_REFLECT(SimilarityConstraint, domains, reference, range, weight);
 };
 
+using HardConstraint = std::variant<
+    ComplementarityConstraint,
+    MatchConstraint,
+    PairingConstraint,
+    PatternConstraint,
+    DiversityConstraint,
+    WindowConstraint,
+    SimilarityConstraint,
+    LibraryConstraint
+>;
 
-/** @brief specification of a Complex */
-struct ComplexSpec {
-    string name;
-    vec<string> strands;
-    Structure structure;
+using SoftConstraint = std::variant<
+    SSMObjective,
+    EnergyEqualizationObjective,
+    PatternConstraint,
+    SimilarityConstraint
+>;
 
-    NUPACK_REFLECT(ComplexSpec, name, strands, structure);
-};
-
-
-/** @brief specification of a Tube */
-struct TubeSpec {
-    string name;
-    vec<std::pair<vec<string>, real>> targets;
-
-    NUPACK_REFLECT(TubeSpec, name, targets);
-};
-
-
-/** @brief collection of specifications for individual constraint types */
-struct ConstraintSpec {
-    vec<DualListSpec> complementarity;
-    vec<DualListSpec> match;
-    vec<PatternSpec> pattern;
-    vec<DiversitySpec> diversity;
-    vec<WordSpec> word;
-    vec<SimilaritySpec> similarity;
-
-    NUPACK_REFLECT(ConstraintSpec, complementarity, match, pattern, diversity, word, similarity);
-};
-
-
-/** @brief specification of all components of a Design and its encapsulating Designer */
 struct Specification {
-    vec<DomainSpec> domains;
-    vec<StrandSpec> strands;
-    vec<ComplexSpec> complexes;
-    vec<TubeSpec> tubes;
-    Model<real> model;
+    vec<TargetTube> tubes;
+    Model<> model;
+    DesignParameters options;
+    vec<HardConstraint> hard_constraints;
+    vec<SoftConstraint> soft_constraints;
+    vec<Weight> defect_weights;
+    real objective_weight = 1;
 
-    Weights weights;
-    ConstraintSpec constraints;
-    vec<Objective> objectives;
+    Designer create_designer() const;
 
-    DesignParameters parameters;
-    bool wobble_mutations = false;
+    vec<uint> ensure_compatibility(SingleResult const &res) const;
 
-    Specification() = default;
-    Specification(Model<real> m, bool w) : model(std::move(m)), wobble_mutations(w) {}
+    void replace(DomainMap const &map);
 
-    NUPACK_REFLECT(Specification, domains, strands, complexes, tubes, model, weights, constraints, objectives, parameters, wobble_mutations)
-
-    /** @brief look up complex by name or strands and return the index in the list
-     * of complexes in the Design.
-     */
-    auto complex_index(vec<string> const &x) const {
-        if (len(x) == 1) {
-            auto it = find_if(complexes, [&](auto const &c) {return c.name == front(x);});
-            if (it != end_of(complexes)) return it - begin_of(complexes);
-        }
-
-        auto low = lowest_rotation(x);
-        auto it = find_if(complexes, [&](auto const &c) {return low == lowest_rotation(c.strands);});
-        if (it == end_of(complexes)) NUPACK_ERROR("unknown complex", x);
-
-        return it - begin_of(complexes);
-    }
-
-    static vec<uint> ensure_compatibility(Specification const &spec, SingleResult const &res);
-
-    explicit operator Designer() const;
+    NUPACK_REFLECT(Specification, tubes, model, options, hard_constraints, soft_constraints, defect_weights, objective_weight);
 };
 
-vec<int> extract_variables(vec<string> const &names, DesignSequence const &seqs);
-vec<int> extract_element(string name, DesignSequence const &seqs);
+vec<int> extract_variables(vec<NamedDomain> const &names, DesignSequence const &seqs);
+vec<int> extract_element(NamedDomain const &name, DesignSequence const &seqs);
 
-}}
+}

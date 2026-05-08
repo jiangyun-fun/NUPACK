@@ -1,24 +1,24 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO mixxxdj/libkeyfinder
-    REF v2.2.4
-    SHA512 6673b9a81dbfa3693fc4e7af4e5fc0f351f0c60b00fdafeb9e3437e2f77b5fec7d1e78e3989ff1daca72770a1d3cdbe3837508718b8e8aba3ac3f3d56af81a56
+    REF ${VERSION}
+    SHA512 31d86715172b62dd72b122a8d480db4598731b87ca58522ad797116acfcbc53b8ecf8fe7eb2b129857b5044b27d32dda9e03927e0a27f8edcdc5d6ce607a76eb
     HEAD_REF main
 )
 
-vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
-    test BUILD_TESTING
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        -DBUILD_TESTING=OFF
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    OPTIONS ${FEATURE_OPTIONS}
-)
-
-vcpkg_install_cmake()
+vcpkg_cmake_install()
 vcpkg_copy_pdbs()
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/KeyFinder TARGET_PATH share/KeyFinder)
+vcpkg_cmake_config_fixup(PACKAGE_NAME KeyFinder CONFIG_PATH lib/cmake/KeyFinder)
+vcpkg_fixup_pkgconfig()
 
-file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+file(INSTALL "${SOURCE_PATH}/LICENSE" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)
 
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+file(REMOVE_RECURSE
+  "${CURRENT_PACKAGES_DIR}/debug/include"
+  "${CURRENT_PACKAGES_DIR}/debug/share")

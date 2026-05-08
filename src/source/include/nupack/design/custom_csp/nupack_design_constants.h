@@ -1,6 +1,6 @@
 #pragma once
 
-enum parameter_set { DNA, RNA, RNA37, USE_SPECIFIED_PARAMETERS_FILE };
+enum class parameter_set { DNA, RNA, RNA37, USE_SPECIFIED_PARAMETERS_FILE };
 
 #define NUPACK_DEF_TEMPERATURE              310.15
 #define NUPACK_DEF_SODIUM                   1.0

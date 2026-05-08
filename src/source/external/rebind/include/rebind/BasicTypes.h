@@ -2,6 +2,7 @@
 #include "Variable.h"
 #include "Conversions.h"
 #include <cstdlib>
+#include <cstdint>
 
 namespace rebind {
 
@@ -162,45 +163,46 @@ struct Request<char const *> {
 
 /******************************************************************************/
 
-using Binary = std::basic_string<unsigned char>;
+using BinaryType = std::byte;
+using Binary = std::vector<BinaryType>;
 
-using BinaryView = std::basic_string_view<unsigned char>;
+// using BinaryView = std::basic_string_view<BinaryType>;
 
 class BinaryData {
-    unsigned char *m_begin=nullptr;
-    unsigned char *m_end=nullptr;
+    BinaryType *m_begin=nullptr;
+    BinaryType *m_end=nullptr;
 public:
     constexpr BinaryData() = default;
-    constexpr BinaryData(unsigned char *b, std::size_t n) : m_begin(b), m_end(b + n) {}
+    constexpr BinaryData(BinaryType *b, std::size_t n) : m_begin(b), m_end(b + n) {}
     constexpr auto begin() const {return m_begin;}
     constexpr auto data() const {return m_begin;}
     constexpr auto end() const {return m_end;}
     constexpr std::size_t size() const {return m_end - m_begin;}
-    operator BinaryView() const {return {m_begin, size()};}
+    // operator BinaryView() const {return {m_begin, size()};}
 };
 
-template <>
-struct Response<BinaryData> {
-    bool operator()(Variable &out, TypeIndex const &t, BinaryData const &v) const {
-        if (t.equals<BinaryView>()) return out.emplace(Type<BinaryView>(), v.begin(), v.size()), true;
-        return false;
-    }
-};
+// template <>
+// struct Response<BinaryData> {
+//     bool operator()(Variable &out, TypeIndex const &t, BinaryData const &v) const {
+//         // if (t.equals<BinaryView>()) return out.emplace(Type<BinaryView>(), v.begin(), v.size()), true;
+//         return false;
+//     }
+// };
 
-template <>
-struct Response<BinaryView> {
-    bool operator()(Variable &out, TypeIndex const &, BinaryView const &v) const {
-        return false;
-    }
-};
+// template <>
+// struct Response<BinaryView> {
+//     bool operator()(Variable &out, TypeIndex const &, BinaryView const &v) const {
+//         return false;
+//     }
+// };
 
-template <>
-struct Request<BinaryView> {
-    std::optional<BinaryView> operator()(Variable const &v, Dispatch &msg) const {
-        if (auto p = v.request<BinaryData>()) return BinaryView(p->data(), p->size());
-        return msg.error("not convertible to binary view", typeid(BinaryView));
-    }
-};
+// template <>
+// struct Request<BinaryView> {
+//     std::optional<BinaryView> operator()(Variable const &v, Dispatch &msg) const {
+//         if (auto p = v.request<BinaryData>()) return BinaryView(p->data(), p->size());
+//         return msg.error("not convertible to binary view", typeid(BinaryView));
+//     }
+// };
 
 template <>
 struct Request<BinaryData> {
@@ -215,8 +217,8 @@ template <class T>
 struct Response<T, Value, std::enable_if_t<(std::is_integral_v<T>)>> {
     bool operator()(Variable &out, TypeIndex const &i, T t) const {
         DUMP("response from integer", typeid(T).name(), i.name());
-        if (i == typeid(Integer)) return out = static_cast<Integer>(t), true;
-        if (i == typeid(Real)) return out = static_cast<Real>(t), true;
+        if (+i == typeid(Integer)) return out = static_cast<Integer>(t), true;
+        if (+i == typeid(Real)) return out = static_cast<Real>(t), true;
         DUMP("no response from integer");
         return false;
     }

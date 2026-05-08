@@ -1,33 +1,28 @@
-vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
-
-set(LIBXMLPP_VERSION 2.40.1)
-
+string(REGEX MATCH "^([0-9]*[.][0-9]*)" MAJOR_MINOR "${VERSION}")
 vcpkg_download_distfile(ARCHIVE
-    URLS "https://ftp.gnome.org/pub/GNOME/sources/libxml++/2.40/libxml++-${LIBXMLPP_VERSION}.tar.xz"
-    FILENAME "libxml++-${LIBXMLPP_VERSION}.tar.xz"
-    SHA512 a4ec2e8182d981c57bdcb8f0a203a3161f8c735ceb59fd212408b7a539d1dc826adf6717bed8f4d544ab08afd9c2fc861efe518e24bbd3a1c4b158e2ca48183a
+    URLS "https://ftp.gnome.org/pub/GNOME/sources/libxml++/${MAJOR_MINOR}/libxml++-${VERSION}.tar.xz"
+         "https://www.mirrorservice.org/sites/ftp.gnome.org/pub/GNOME/sources/libxml++/${MAJOR_MINOR}/libxml++-${VERSION}.tar.xz"
+    FILENAME "libxml++-${VERSION}.tar.xz"
+    SHA512 bba28edf40c60ac186ff1b704d9f4f41f73c1be3126cfb345005283b32bb5c9a596b8def64be8ad8e295e1e169bed91d120d5105cbbb6cecc4675d10b897dfe6
 )
 
-vcpkg_extract_source_archive_ex(
-    OUT_SOURCE_PATH SOURCE_PATH
-    ARCHIVE ${ARCHIVE}
-    PATCHES
-        fixAutoPtrExpired.patch
+vcpkg_extract_source_archive(
+    SOURCE_PATH
+    ARCHIVE "${ARCHIVE}"
 )
 
-file(COPY ${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt DESTINATION ${SOURCE_PATH})
-
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
-    OPTIONS_DEBUG
-        -DDISABLE_INSTALL_HEADERS=ON
+vcpkg_configure_meson(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS 
+        -Dbuild-documentation=false
+        -Dbuild-manual=false
+        -Dvalidation=false # Validate the tutorial XML file
+        -Dbuild-examples=false
+        -Dbuild-tests=false
+        -Dbuild-deprecated-api=true # Build deprecated API and include it in the library
 )
-
-vcpkg_install_cmake()
-
+vcpkg_install_meson()
+vcpkg_fixup_pkgconfig()
 vcpkg_copy_pdbs()
 
-# Handle copyright and readme
-file(INSTALL ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/libxmlpp RENAME copyright)
-file(INSTALL ${SOURCE_PATH}/README DESTINATION ${CURRENT_PACKAGES_DIR}/share/libxmlpp)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/COPYING")

@@ -2,23 +2,26 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO dpilger26/NumCpp
-    REF fc68d897f8c2ae4f5b14baff3eefda897351abbd # 2.1.0
-    SHA512 ce407d9782d304658853cd66ba5901a4dc84d8cf74d45b2dd466ca6328f6bf60b39906efd5373624df6b46c4253f861208b15254d0e156fdb09f32ca731ad2bc
+    REF "Version_${VERSION}"
+    SHA512 77a2b6de9a98c479ea356a151ef28267ba72800286fbc574cba0676d2a38c8f277701269e20e0ceae61b1ff9fb527d2d590aa2570353904a541e8233c8e0b018
     HEAD_REF master
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
-    OPTIONS
-        -DNUMCPP_TEST=OFF
-        -DNUMCPP_EXAMPLES=OFF
+vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
+    INVERTED_FEATURES
+        boost NUMCPP_NO_USE_BOOST
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        ${FEATURE_OPTIONS}
+)
 
-vcpkg_fixup_cmake_targets(CONFIG_PATH share/NumCpp/cmake TARGET_PATH share/NumCpp)
+vcpkg_cmake_install()
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug)
+vcpkg_cmake_config_fixup(PACKAGE_NAME NumCpp CONFIG_PATH share/NumCpp/cmake)
 
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug")
+
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

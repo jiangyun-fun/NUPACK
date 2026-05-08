@@ -1,6 +1,6 @@
 #include <nupack/design/DesignComponents.h>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 vec<real> ord_lin_lsq(vec<real> const &x, vec<real> const &y) {
     NUPACK_REQUIRE(len(x), ==, len(y));
@@ -32,4 +32,4 @@ real Timer::stop() {
     return std::chrono::duration<real>(_stop - _start).count();
 }
 
-}}
+}

@@ -8,46 +8,16 @@
 
 #include "../types/Matrix.h"
 #include "../types/Complex.h"
+#include "../types/Named.h"
 #include "../reflect/SerializeMatrix.h"
 
 #include <map>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design { 
 
 // using custom_csp::ConstraintHandler;
 // using custom_csp::CompConstraint;
 // using custom_csp::NUPACK_CS_STRONG;
-
-
-/** @brief a user-level specification of a strand in terms of domain names */
-struct StrandSpec : MemberOrdered {
-    string name;
-    vec<string> domain_names;
-    NUPACK_REFLECT(StrandSpec, name, domain_names);
-
-    StrandSpec() = default;
-    StrandSpec(string name, vec<string> const & domain_names) :
-            name(name), domain_names(domain_names) {};
-};
-
-
-/** @brief a user-level specification of what a domain should look like */
-struct DomainSpec : MemberOrdered {
-    string name;
-    string allowed_bases; // maybe make this force valid sequences
-    NUPACK_REFLECT(DomainSpec, name, allowed_bases);
-
-    DomainSpec() = default;
-    DomainSpec(string const & name, string const & bases) : name(name), allowed_bases(bases) {}
-
-    /** @brief Construct from a sequence of subdomains which can each be repeated a specified number of times. */
-    DomainSpec(string const & name, vec<std::pair<string, int>> const & base_spec) :
-            name(name),
-            allowed_bases(multiply_substrings(base_spec))
-            {}
-
-    auto size() const {return len(allowed_bases);}
-};
 
 
 /** @brief view of iterators into a larger Sequence definining the domain */
@@ -72,9 +42,8 @@ struct DomainView : MemberOrdered {
      * @param s a Sequence containing a substring that is the domain
      * @return the domain Sequence
      */
-    Sequence to_sequence(Sequence const &s) const {
-        auto seq = Sequence(subview(s, indices));
-        return seq;
+    Sequence to_sequence(Subsequence const &s) const {
+        return Sequence(subview(s, indices));
     }
 
     /**
@@ -102,7 +71,7 @@ struct StrandView : MemberOrdered {
      * @param s a Sequence containing contiguous regions that are the domains of this strand
      * @return the strand Sequence
      */
-    Sequence to_sequence(Sequence const &s) const {
+    Sequence to_sequence(Subsequence const &s) const {
         auto seq = join(vmap(domains, [&](auto const &d) {return d.to_sequence(s);}));
         return seq;
     }
@@ -120,26 +89,31 @@ struct StrandView : MemberOrdered {
 /** @brief Underlying sequence which other sequence elements in design have
   views to and which forwards update requests to the ConstraintHandler. */
 struct DesignSequence : MemberOrdered {
-    template <class K, class V> using map_type = std::map<K, V>;
+    template <class K, class V> 
+    using map_type = std::unordered_map<K, V>;
+    
     /** @brief underlying sequence that is mutated to match ConstraintHandler */
     Sequence nucleotides; // need a previous sequence as well to step back to...revert() or something
     /** @brief constraint handler */
     Constraints constraints;
+    /** @brief alphabet of bases */
+    Alphabet alphabet;
+    /** @brief base pair possibilities */
+    BasePairing base_pairing;
     /** @brief internal map for returning views of strands */
     map_type<string, StrandView> strands;
     /** @brief internal map for returning views of domains */
     map_type<string, DomainView> domains;
-    /** @brief input strand specifications to be used with DomainViews to generate StrandViews */
-    vec<StrandSpec> strand_specs;
-    /** @brief input domain specifications to be processed into underlying sequence */
-    vec<DomainSpec> domain_specs;
     /** @brief number of times each nucleotide was chosen for mutation */
     vec<uint> times_mutated;
     // real_mat correlation_matrix;
-    uint real_variables;
+    uint real_variables = 0;
     bool wobble_mutations = false;
 
-    NUPACK_REFLECT(DesignSequence, nucleotides, constraints, strands, domains, strand_specs, domain_specs, times_mutated, wobble_mutations);
+    DesignSequence() = default;
+    explicit DesignSequence(Alphabet a, BasePairing p, bool wobble) : alphabet(std::move(a)), base_pairing(std::move(p)), wobble_mutations(wobble) {}
+
+    NUPACK_REFLECT(DesignSequence, nucleotides, constraints, strands, domains, times_mutated, alphabet, base_pairing, wobble_mutations);
 
     /**
      * @brief get a StrandView corresponding to the name if it exists,
@@ -158,29 +132,14 @@ struct DesignSequence : MemberOrdered {
 
     void set_domain(string const &name, Sequence const &in);
 
-    /**
-     * @brief add a specification for a new strand
-     */
-    void add_strand(StrandSpec const &strand) {strand_specs.emplace_back(strand);}
-
-    /**
-     * @brief construct DomainSpec in-place in list of domain specifications
-     *
-     * @param ts parameters for construction of DomainSpec
-     * @tparam class ...Ts classes for corresponding DomainSpec constructor inputs
-     */
-    template <class ...Ts>
-    void add_domain(Ts &&...ts) {domain_specs.emplace_back(fw<Ts>(ts)...);}
-
     /* constraint-related methods */
-    void add_domain_complements();
     void add_complementarity_constraints();
+
 
     string json_domains(Sequence s={}) const;
 
-    std::pair<bool, string> all_nucleotides_fixed();
+    void make_sequence(vec<NamedDomain> const &domains, vec<TargetStrand> const &strands);
 
-    void make_sequence();
     void initialize_sequence();
 
     bool mutate_sequence(vec<uint> const &vars);
@@ -191,8 +150,8 @@ struct DesignSequence : MemberOrdered {
      * @throws std::invalid_argument if incoming sequence is not of matching length
      * @param s incoming sequence
      */
-    void set_sequence(Sequence const &s) {
-        if (len(s) == len(nucleotides)) nucleotides = s;
+    void set_sequence(Sequence s) {
+        if (len(s) == len(nucleotides)) nucleotides = std::move(s);
         else throw std::invalid_argument("incoming sequence is incorrect length");
     }
 
@@ -210,4 +169,4 @@ inline ::nupack::Complex to_nick_sequence(vec<StrandView> const &strands, Sequen
     return ::nupack::Complex(indirect_view(strands, [&](auto const &d) {return d.to_sequence(s);}));
 }
 
-}}
+}

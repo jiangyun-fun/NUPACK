@@ -1,41 +1,57 @@
-vcpkg_fail_port_install(ON_TARGET "UWP")
-
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO Haivision/srt
-    REF v1.3.4
-    SHA512 3a9f9a8fd8ba56ae9ca04203bdea9e9a25275e1f531ca10deee0e760e6beaf44e83ee7a616cfe3ade9676082d9cc8611214de876f64d141e1e8c3b1e16273001
+    REF "v${VERSION}"
+    SHA512 ec4e5923531a8a7fd7778c739cb52208d24a91c569f31f3995d6e0695dffd83492e5eca2530b2e112ca37f1fd4520061d89ef42d1ded95e2516a9acda009bcaf 
     HEAD_REF master
-    PATCHES fix-dependency-install.patch
+    PATCHES
+        fix-static.patch
+        pkgconfig.diff
+        fix-tool.patch
 )
 
-if (VCPKG_LIBRARY_LINKAGE STREQUAL dynamic)
-    set(BUILD_DYNAMIC ON)
-    set(BUILD_STATIC OFF)
-else()
-    set(BUILD_DYNAMIC OFF)
-    set(BUILD_STATIC ON)
-endif()
+string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "static" KEYSTONE_BUILD_STATIC)
+string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "dynamic" KEYSTONE_BUILD_SHARED)
 
-vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
-    tool ENABLE_APPS
+vcpkg_check_features(
+    OUT_FEATURE_OPTIONS FEATURE_OPTIONS
+    FEATURES
+        tool    ENABLE_APPS
+        bonding ENABLE_BONDING
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS ${FEATURE_OPTIONS}
-        -DENABLE_SHARED=${BUILD_DYNAMIC}
-        -DENABLE_STATIC=${BUILD_STATIC}
-        -DINSTALL_DOCS=ON
-        -DINSTALL_PKG_CONFIG_MODULE=ON
-        -DENABLE_SUFLIP=OFF # Since there are some file not found, disable this feature
+        -DENABLE_CXX11=ON
+        -DENABLE_STATIC=${KEYSTONE_BUILD_STATIC}
+        -DENABLE_SHARED=${KEYSTONE_BUILD_SHARED}
         -DENABLE_UNITTESTS=OFF
         -DUSE_OPENSSL_PC=OFF
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
 vcpkg_copy_pdbs()
+vcpkg_fixup_pkgconfig()
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
-# Handle copyright
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+if(ENABLE_APPS)
+    if(NOT VCPKG_TARGET_IS_MINGW)
+        vcpkg_copy_tools(TOOL_NAMES srt-tunnel AUTO_CLEAN)
+    endif()
+    vcpkg_copy_tools(TOOL_NAMES srt-file-transmit srt-live-transmit AUTO_CLEAN)
+    vcpkg_copy_tool_dependencies("${CURRENT_PACKAGES_DIR}/tools/${PORT}")
+    file(RENAME "${CURRENT_PACKAGES_DIR}/bin/srt-ffplay" "${CURRENT_PACKAGES_DIR}/tools/${PORT}/srt-ffplay")
+endif()
+if(KEYSTONE_BUILD_STATIC OR NOT VCPKG_TARGET_IS_WINDOWS)
+    file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/bin" "${CURRENT_PACKAGES_DIR}/debug/bin")
+else()
+    file(REMOVE "${CURRENT_PACKAGES_DIR}/bin/srt-ffplay" "${CURRENT_PACKAGES_DIR}/debug/bin/srt-ffplay")
+endif()
+
+if(VCPKG_TARGET_IS_WINDOWS AND VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")
+    vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/include/srt/srt.h" "#ifdef SRT_DYNAMIC" "#if 1")
+endif()
+
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

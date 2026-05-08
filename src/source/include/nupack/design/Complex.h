@@ -8,7 +8,7 @@
 #include "../types/Sequence.h"
 #include "Logging.h"
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 struct Target : MemberOrdered {
     Model<real> model;
@@ -21,7 +21,7 @@ struct Target : MemberOrdered {
     Target() = default;
     Target(Model<real> m, Structure s={}) : model(std::move(m)), structure(std::move(s)) {}
 
-    auto const & cached_models(ModelMap const &map) const {return map.get(model).models;}
+    // auto const & cached_models(ModelMap const &map) const {return map.get(model).models;}
     auto & environment(ModelMap const &map) const {return map.get(model);}
 };
 
@@ -51,9 +51,9 @@ struct Complex : MemberOrdered {
     bool is_on_target() const {return target.has_structure();}
 
     /* Sequence dependent properties */
-    real log_pfunc(Local env, ModelMap const &map, Sequence const &s, EngineObserver &obs=NullEngineObserver) const;
-    Tensor<real, 2> pair_probabilities(Local env, ModelMap const &map, Sequence const &s, EngineObserver &obs=NullEngineObserver) const;
-    Defect defect(Local env, ModelMap const &map, Sequence const &, EngineObserver &obs=NullEngineObserver) const;
+    real log_pfunc(Env const &env, ModelMap const &map, Sequence const &s, EngineObserver &obs=NullEngineObserver) const;
+    Mat<real> pair_probabilities(Env const &env, ModelMap const &map, Sequence const &s, EngineObserver &obs=NullEngineObserver) const;
+    Defect defect(Env const &env, ModelMap const &map, Sequence const &, EngineObserver &obs=NullEngineObserver) const;
 
     real join_penalty(ModelMap const &map) const {
         return -target.model.beta * (len(strands) - 1) * target.model.join_penalty();
@@ -74,23 +74,23 @@ struct Complex : MemberOrdered {
     }
 
     /* Estimate */
-    real log_pf_single_strands(Local env, ModelMap const &map, Sequence const &s, EngineObserver &obs=NullEngineObserver) const;
+    real log_pf_single_strands(Env const &env, ModelMap const &map, Sequence const &s, EngineObserver &obs=NullEngineObserver) const;
 
     /* Decomposition */
-    real log_pfunc(Local env, ModelMap const &map, Sequence const &s,
+    real log_pfunc(Env const &env, ModelMap const &map, Sequence const &s,
             uint depth, LevelSpecification const &indiv={}, EngineObserver &obs=NullEngineObserver) const;
-    ProbabilityMatrix pair_probabilities(Local env, ModelMap const &map, Sequence const &s,
+    ProbabilityMatrix pair_probabilities(Env const &env, ModelMap const &map, Sequence const &s,
             uint depth, LevelSpecification const &indiv={}, EngineObserver &obs=NullEngineObserver) const;
-    Defect defect(Local env, ModelMap const &map, Sequence const &s,
+    Defect defect(Env const &env, ModelMap const &map, Sequence const &s,
             uint depth, LevelSpecification const &indiv={}, EngineObserver &obs=NullEngineObserver) const;
 
     void structure_decompose();
-    bool probability_decompose(Sequence const &s, ModelMap const &map, uint depth=0,
+    bool probability_decompose(Env const &env, Sequence const &s, ModelMap const &map, uint depth=0,
             LevelSpecification const &indiv={}, EngineObserver &obs=NullEngineObserver);
     auto depth() const {return decomposition.depth();}
     void index_nodes();
     vec<int> get_node_indices(uint depth, bool include_leaves=true) const;
-    string hierarchical_pfunc(ModelMap const &map, Sequence const &s, uint depth, EngineObserver &obs=NullEngineObserver);
+    string hierarchical_pfunc(Env const &, ModelMap const &map, Sequence const &s, uint depth, EngineObserver &obs=NullEngineObserver);
     string decomposition_connectivity() const;
 
     /**
@@ -98,7 +98,7 @@ struct Complex : MemberOrdered {
      *
      * @return number of physical nucleotides in the complex
      */
-    auto size() const {return sum(strands, len);}
+    // auto size() const {return sum(strands, len);}
 
     auto symmetry_correction() const {return std::log(rotational_symmetry(strands));}
 
@@ -106,5 +106,7 @@ struct Complex : MemberOrdered {
 
 };
 
+inline auto nt(Complex const &c) {return sum(c.strands, len);}
 
-}}
+
+}

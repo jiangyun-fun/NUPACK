@@ -32,7 +32,7 @@ struct NupackInvariants {
     real f_refocus {NUPACK_DEF_F_REFOCUS};                              // Margin of correction during decomposition correction
     real gc_init_prob {NUPACK_DEF_GC_INIT_PROB};                        // Probability of choosing GC vs AU on initialization (UNUSED)
     real dG_clamp { -20.0};                                             // clamp bonus for enforcing pairs (different from tubedesign)
-    parameter_set material {NUPACK_DEF_MATERIAL};                       // DNA1998/RNA1995/RNA1999 type
+    parameter_set material {parameter_set::NUPACK_DEF_MATERIAL};                       // DNA1998/RNA1995/RNA1999 type
     Ensemble ensemble = Ensemble::min;                                  // method of accounting for dangle energies
     unsigned int seed {NUPACK_DEF_SEED};                                // RNG seed
     int H_split { -1};                                                  // minimum number of base pairs on either side of a split point, -1 == unset sentinel value
@@ -73,7 +73,7 @@ struct NupackInvariants {
     Json::Value make_json_value() const;
 #endif
 
-    static int num_mutations;             // to get a speed-invariant metric to compare with newdesign
+    static int num_mutations;             // to get a speed-invariant metric to compare with design
     static int num_redecompositions;
 };
 

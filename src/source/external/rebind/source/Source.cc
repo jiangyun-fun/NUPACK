@@ -105,7 +105,7 @@ void Variable::assign(Variable v) {
         DUMP("assign bad");
         throw std::invalid_argument("Cannot assign to const Variable");
     } else { // qual == Lvalue or Rvalue
-        DUMP("assigning reference", type(), &buff, pointer(), v.type());
+        DUMP("assigning reference ", type(), " ", &buff, " ", pointer(), " ", v.type());
         // qual, type, etc are unchanged
         act(ActionType::assign, pointer(), &v);
         if (v.has_value())
@@ -116,7 +116,7 @@ void Variable::assign(Variable v) {
 /******************************************************************************/
 
 Variable Variable::request_var(Dispatch &msg, TypeIndex const &t, Qualifier q) const {
-    DUMP((act != nullptr), " asking for ", t, "from", q, type());
+    DUMP((act != nullptr), " asking for ", t, " from ", q, " ", type());
     Variable v;
     if (!has_value()) {
         // Nothing to do; request always fails
@@ -128,13 +128,13 @@ Variable Variable::request_var(Dispatch &msg, TypeIndex const &t, Qualifier q) c
             v.stack = stack;
             act((q == Rvalue) ? ActionType::move : ActionType::copy, pointer(), &v);
         } else if (t.qualifier() == Const || t.qualifier() == q) { // Bind a reference
-            DUMP("yope", t, type(), q);
+            // DUMP("yope", t, type(), q);
             reinterpret_cast<void *&>(v.buff) = pointer();
             v.idx = t;
             v.act = act;
             v.stack = stack;
         } else {
-            DUMP("nope");
+            // DUMP("nope");
             msg.error("Source and target qualifiers are not compatible");
         }
     } else {
@@ -144,14 +144,14 @@ Variable Variable::request_var(Dispatch &msg, TypeIndex const &t, Qualifier q) c
 
         if (!v.has_value()) {
             DUMP("response returned no value");
-            msg.error("Did not respond with anything");
+            // msg.error("Did not respond with anything");
         } else if (v.type() != t)  {
             DUMP("response gave wrong type", v.type(), t);
             msg.error("Did not respond with correct type");
             v.reset();
         }
     }
-    DUMP(v.type(), t);
+    DUMP("request() yielded output: ", v.type(), " for requested type ", t);
     return v;
 }
 

@@ -1,11 +1,11 @@
 vcpkg_download_distfile(ARCHIVE
-    URLS "https://www.riverbankcomputing.com/static/Downloads/QScintilla/2.11.4/QScintilla-2.11.4.tar.gz"
-    FILENAME "QScintilla-2.11.4.tar.gz"
-    SHA512 90fc2427121ca9ae55e34cf636460099bbdadd844318d9ef05f86790a36e25fb64528264bb7bb99e46b7add96378eff0cc69bb692940c6a1bddfadf86a9abdbd
+    URLS "https://www.riverbankcomputing.com/static/Downloads/QScintilla/${VERSION}/QScintilla_src-${VERSION}.tar.gz"
+    FILENAME "QScintilla-${VERSION}.tar.gz"
+    SHA512 19e2f9e0a14947501c575018df368d24eb7f8c74e74faa5246db36415bf28dc0beee507ed0e73107c02b36a99bbaf55f0ef3349f479d2332e1b92b2c4a32788a
 )
 
-vcpkg_extract_source_archive_ex(
-    OUT_SOURCE_PATH SOURCE_PATH
+vcpkg_extract_source_archive(
+    SOURCE_PATH
     ARCHIVE ${ARCHIVE}
     PATCHES
         fix-static.patch
@@ -17,27 +17,39 @@ vcpkg_find_acquire_program(PYTHON3)
 get_filename_component(PYTHON3_PATH ${PYTHON3} DIRECTORY)
 vcpkg_add_to_path(${PYTHON3_PATH})
 
-vcpkg_configure_qmake(
-    SOURCE_PATH ${SOURCE_PATH}/Qt4Qt5
-    OPTIONS
-        CONFIG+=build_all
-        CONFIG-=hide_symbols
-        DEFINES+=SCI_NAMESPACE
+vcpkg_qmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}/src"
+    QMAKE_OPTIONS
+        "CONFIG-=hide_symbols"
+        "DEFINES+=SCI_NAMESPACE"
 )
+vcpkg_qmake_install()
 
-if(VCPKG_TARGET_IS_WINDOWS)
-    vcpkg_install_qmake(
-        RELEASE_TARGETS release
-        DEBUG_TARGETS debug
-    )
-else()
-    vcpkg_install_qmake()
+file(GLOB DLLS "${CURRENT_PACKAGES_DIR}/lib/*.dll")
+if(DLLS)
+    file(COPY ${DLLS} DESTINATION "${CURRENT_PACKAGES_DIR}/bin")
+    file(REMOVE ${DLLS})
 endif()
 
-file(GLOB HEADER_FILES ${SOURCE_PATH}/Qt4Qt5/Qsci/*)
+file(GLOB DEBUG_DLLS "${CURRENT_PACKAGES_DIR}/debug/lib/*.dll")
+if(DEBUG_DLLS)
+    file(COPY ${DEBUG_DLLS} DESTINATION "${CURRENT_PACKAGES_DIR}/debug/bin")
+    file(REMOVE ${DEBUG_DLLS})
+endif()
+
+file(GLOB HEADER_FILES ${SOURCE_PATH}/src/Qsci/*)
 file(COPY ${HEADER_FILES} DESTINATION ${CURRENT_PACKAGES_DIR}/include/Qsci)
+
+if (VCPKG_TARGET_IS_WINDOWS AND (VCPKG_LIBRARY_LINKAGE STREQUAL dynamic))
+    vcpkg_replace_string(${CURRENT_PACKAGES_DIR}/include/Qsci/qsciglobal.h
+        "#if defined(QSCINTILLA_DLL)"
+        "#if 1"
+    )
+endif()
 
 vcpkg_copy_pdbs()
 
+file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/unofficial-qscintilla-config.cmake" DESTINATION "${CURRENT_PACKAGES_DIR}/share/unofficial-${PORT}")
+
 # Handle copyright
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

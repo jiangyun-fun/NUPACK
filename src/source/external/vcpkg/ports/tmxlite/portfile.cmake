@@ -1,22 +1,38 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO fallahn/tmxlite
-    REF 591dd0371dceb2c43abeceac11cd9e8077880cca
+    REF "v${VERSION}"
     HEAD_REF master
-    SHA512 a857aea3ec99c686e97d25ecb2bdd8d2f2f14dcb8419e14535ace8794bfbc21fe825cffc60e589df7291ae35076fb6734f7047c985a6ea6d0c55c861c07ba784
+    SHA512 0ffe0505329f00ef9872998673a7c220a9a5352f830688ef17952c0c4f001e0c2994a3a28f0e7de60cc82fff2701561cccbc2143fd51984bf4870e7d1fd0a2ba
+    PATCHES
+        dependencies.patch
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}/tmxlite
-    PREFER_NINJA
+string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "static" TMXLITE_STATIC_LIB)
+
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}/tmxlite"
+    OPTIONS
+        -DTMXLITE_STATIC_LIB=${TMXLITE_STATIC_LIB}
+        -DUSE_EXTLIBS=ON
+        -DPKGCONF_REQ_PUB=pugixml
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
+vcpkg_fixup_pkgconfig()
+vcpkg_copy_pdbs()
 
-if(VCPKG_LIBRARY_LINKAGE STREQUAL static)
-    file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/bin ${CURRENT_PACKAGES_DIR}/debug/bin)
+set(STATIC_POSTFIX "")
+if(TMXLITE_STATIC_LIB)
+    set(STATIC_POSTFIX "-s")
+    vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/lib/pkgconfig/tmxlite.pc" "-ltmxlite" "-ltmxlite${STATIC_POSTFIX}")
 endif()
 
-configure_file(${SOURCE_PATH}/readme.md ${CURRENT_PACKAGES_DIR}/share/${PORT}/copyright COPYONLY)
+if(NOT VCPKG_BUILD_TYPE)
+    vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/debug/lib/pkgconfig/tmxlite.pc" "-ltmxlite" "-ltmxlite${STATIC_POSTFIX}-d")
+endif()
+
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

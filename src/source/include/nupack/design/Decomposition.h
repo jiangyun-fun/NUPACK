@@ -6,7 +6,7 @@
 #include "Granularity.h"
 #include "Logging.h"
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 struct DecompositionParameters {
     int H_split {2};
@@ -18,22 +18,22 @@ struct DecompositionParameters {
     NUPACK_REFLECT(DecompositionParameters, H_split, N_split, f_split, f_sparse, dG_clamp);
 };
 
-/**
- * @brief replace a shared environment with a serial one if the size of the
- * complex (or subcomplex) is smaller than the threshold.
- *
- * @tparam V environment type
- * @tparam S a complex or decomposition node type
- * @param v an environment
- * @param s either a complex or a decomposition node
- */
-template <class V, class S>
-auto threshold(V const &v, S const &s) {
-    static constexpr uint thresh = 500;
-    if (v.n_workers() == 1) return v;
-    if (len(s) <= thresh) return Local();
-    return v;
-}
+// /**
+//  * @brief replace a shared environment with a serial one if the size of the
+//  * complex (or subcomplex) is smaller than the threshold.
+//  *
+//  * @tparam V environment type
+//  * @tparam S a complex or decomposition node type
+//  * @param v an environment
+//  * @param s either a complex or a decomposition node
+//  */
+// template <class V, class S>
+// [[deprecated]] auto threshold(V const &v, S const &s) {
+//     static constexpr uint thresh = 500;
+//     if (v.n_workers() == 1) return v;
+//     if (nt(s) <= thresh) return Env();
+//     return v;
+// }
 
 struct ComplexNode;
 using PairedChildren = std::pair<SplitPoint, std::pair<ComplexNode, ComplexNode>>;
@@ -42,7 +42,8 @@ using ThermoData = std::pair<ProbabilityMatrix, real>;
 ThermoData join_children(SplitPoint, ThermoData const &, ThermoData const &);
 ThermoData merge_alternatives(vec<ThermoData> const &, real f_sparse);
 
-
+// This tree organization is really annoying for parallelism etc, should not have been written this way.
+// Flat layout with dependencies layered on top would be much better.
 struct ComplexNode {
     struct Cache {
         mutable vec<std::pair<::nupack::Complex, ThermoData>> map;
@@ -66,7 +67,7 @@ struct ComplexNode {
     vec<SplitPoint> enforced_pairs;
     vec<StrandView> sequence;
     Structure structure;
-    vec<PairedChildren> children;
+    std::vector<PairedChildren> children;
     int index = -1; // unset value
     Cache cache;
 
@@ -79,13 +80,13 @@ struct ComplexNode {
             structure(std::move(structure)) {}
 
     // pfunc -> merge or compute if end of tree or at that depth
-    ThermoData dynamic_program(Local env, ThermoEnviron &t_env, Sequence const &s, uint depth,
+    ThermoData dynamic_program(Env const &env, ThermoEnviron &t_env, Sequence const &s, uint depth,
             DecompositionParameters const &params, LevelSpecification const &indiv={},
             EngineObserver &obs=NullEngineObserver) const;
 
     void add_child(SplitPoint sp);
     void structure_decompose(uint min_size, uint min_helix);
-    bool probability_decompose(DecompositionParameters const &params,
+    bool probability_decompose(Env const &, DecompositionParameters const &params,
             Sequence const &s, ThermoEnviron &t_env, int depth=0,
             LevelSpecification const &indiv={}, EngineObserver &obs=NullEngineObserver);
 
@@ -139,7 +140,7 @@ struct ComplexNode {
     /* code for JSON import/export without including the cache */
     static constexpr auto repr_names() {return make_names("structure", "sequence", "enforced_pairs", "index", "children", "length");}
     auto save_repr() const {return make_members(structure, sequence, enforced_pairs, index, children, size());}
-    void load_repr(Structure str, vec<StrandView> s, vec<SplitPoint> spl, int ind, vec<PairedChildren> chi, uint) {
+    void load_repr(Structure str, vec<StrandView> s, vec<SplitPoint> spl, int ind, std::vector<PairedChildren> chi, uint) {
         structure = std::move(str);
         sequence = std::move(s);
         enforced_pairs = std::move(spl);
@@ -150,4 +151,4 @@ struct ComplexNode {
 };
 
 
-}}
+}

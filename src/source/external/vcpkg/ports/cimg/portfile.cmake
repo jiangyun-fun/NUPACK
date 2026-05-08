@@ -1,21 +1,22 @@
+set(VCPKG_BUILD_TYPE release) # header-only
+
 vcpkg_from_github(OUT_SOURCE_PATH SOURCE_PATH
-    REPO "dtschump/CImg"
-    REF a0e7ecb55130bdf90756033c1e1470eae4b88c1a #v2.9.4
+    REPO dtschump/CImg
+    REF "v.${VERSION}"
+    SHA512 dc079933bf68df7b0ae1a9498de952e4a32608e74da0df360b628056bdd82ab66f0428a5c94457fd6e9567772a544e9584f5d8f1f6debda6c146b45ea9b813fd
     HEAD_REF master
-    SHA512 0fc814b67ce9f035a68308850117b40cb54d731cb559bf1b6f46e1ec1e29d473e805818018ac411529b51510468cfbe4427aa52a354f919d7f1ce84bd285a47d)
-
-file(COPY ${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt DESTINATION ${SOURCE_PATH})
-
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
 )
 
-vcpkg_install_cmake()
+file(COPY "${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt" DESTINATION "${SOURCE_PATH}")
 
-# Move cmake files, ensuring they will be 3 directories up the import prefix
-file(MAKE_DIRECTORY ${CURRENT_PACKAGES_DIR}/share/${PORT})
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug)
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
+)
 
-file(INSTALL ${SOURCE_PATH}/Licence_CeCILL-C_V1-en.txt DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
-file(INSTALL ${SOURCE_PATH}/Licence_CeCILL_V2-en.txt DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright2)
+vcpkg_cmake_install()
+
+vcpkg_install_copyright(
+    FILE_LIST 
+        "${SOURCE_PATH}/Licence_CeCILL-C_V1-en.txt"
+        "${SOURCE_PATH}/Licence_CeCILL_V2-en.txt"
+)

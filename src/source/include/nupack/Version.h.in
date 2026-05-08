@@ -11,6 +11,7 @@
 #define NUPACK_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
 #define NUPACK_VERSION_MINOR @PROJECT_VERSION_MINOR@
 #define NUPACK_VERSION_PATCH @PROJECT_VERSION_PATCH@
+#define NUPACK_VERSION_TWEAK @PROJECT_VERSION_TWEAK@
 
 /// Default value for nupack::MatlabCommand
 #define NUPACK_MATLAB_PATH @NUPACK_MATLAB_EXE@
@@ -23,6 +24,9 @@
 
 /// Default value for nupack::GitRevision
 #define NUPACK_GIT_REVISION @NUPACK_GIT_REVISION@
+
+/// Default value for nupack::BuildType
+#define NUPACK_BUILD_TYPE @CMAKE_BUILD_TYPE@
 
 /// Default value for nupack::TotalRAM
 #define NUPACK_RAM_IN_MB @NUPACK_RAM_IN_MB@
@@ -38,5 +42,3 @@
 
 /// Default value for nupack::DebugInfo
 #define NUPACK_DEBUG_INFO @NUPACK_DEBUG_INFO@
-
-#define NUPACK_RENDERS @NUPACK_RENDERS@

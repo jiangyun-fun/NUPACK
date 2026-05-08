@@ -35,7 +35,7 @@ public:
     /// Default constructor, generally only to be used for container convenience
     SequenceSet() = default;
 
-    SequenceSet(BaseIter b) : seqs{b} {}
+    SequenceSet(BaseIter b) : seqs{{b, nullptr}} {}
 
     SequenceSet(SubsequenceList v) : seqs(std::move(v)) {finalize();}
 
@@ -45,14 +45,24 @@ public:
     bool exterior() const {return n != NoNick;}
     /// Nick getter
     auto nick() const {return n;}
+    
+    // Call a functor on each base iterators denoting a base pair
+    template <class F>
+    void for_each_pair(F &&f) const {
+        for_circularly_adjacent(seqs, [&](auto const &s, auto const &t) {
+            if (front(t) == Base::null()) return;
+            f(std::prev(s.end()), t.begin());
+        });
+    }
 
     /************************************************************************************/
 
     /// Sequences, separated by ','
-    string sequence_string(string const sep=", ") const {
-        auto ret = sum(seqs, [&](auto const &s){return make_string(s) + sep;});
-        ret.pop_back(); return ret;
-    }
+    string sequence_string(string const sep=", ") const;
+    //  {
+    //     auto ret = sum(seqs, [&](auto const &s){return make_string(s) + sep;});
+    //     ret.pop_back(); return ret;
+    // }
     /// Classified for loop (hairpin, etc)
     string name() const {
         if (exterior()) return "Exterior";

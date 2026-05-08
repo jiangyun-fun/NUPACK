@@ -1,27 +1,36 @@
-vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
+if(VCPKG_TARGET_IS_WINDOWS)
+    vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
+endif()
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO microsoft/SEAL
-    REF d6040632780981f3ab61969025d333d394eb2aeb
-    SHA512 f93c636eb9f3dd4c3b626b126aeed669da506e1e17eba172f6d3193ff2561b4cb4fc19a30b46792afa04848f1f4d73e276cdc915b41ec64bc9ea6d02550af110
-    HEAD_REF master
+    REF "v${VERSION}"
+    SHA512 8e97e8106ae2eeceee743634b0db1936b3a3a1381ceceb5646f6de8008d2147cdc9b847219dafd7d8b8f7457e63c7463f155694e8a192d13531171b468e8f365
+    HEAD_REF main
+    PATCHES
+        shared-zstd.patch
+        fix-hexl.patch
+)
+
+vcpkg_replace_string(
+    "${SOURCE_PATH}/cmake/CheckCXXIntrinsicsSpecific.cmake"
+    "check_cxx_source_runs"
+    "check_cxx_source_compiles"
 )
 
 vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
     FEATURES
-    ms-gsl SEAL_USE_MSGSL
-    zlib SEAL_USE_ZLIB
-    zstd SEAL_USE_ZSTD
-
+        ms-gsl SEAL_USE_MSGSL
+        zlib SEAL_USE_ZLIB
+        zstd SEAL_USE_ZSTD
+        hexl SEAL_USE_INTEL_HEXL
     INVERTED_FEATURES
-    no-throw-tran SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT
+        no-throw-tran SEAL_THROW_ON_TRANSPARENT_CIPHERTEXT
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
-    DISABLE_PARALLEL_CONFIGURE
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
         -DSEAL_BUILD_DEPS=OFF
         -DSEAL_BUILD_EXAMPLES=OFF
@@ -30,22 +39,15 @@ vcpkg_configure_cmake(
         ${FEATURE_OPTIONS}
 )
 
-vcpkg_build_cmake(TARGET seal LOGFILE_ROOT build)
+vcpkg_cmake_install()
 
-vcpkg_install_cmake()
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/SEAL-4.1)
 
-file(GLOB CONFIG_PATH RELATIVE "${CURRENT_PACKAGES_DIR}" "${CURRENT_PACKAGES_DIR}/lib/cmake/SEAL-*")
-if(NOT CONFIG_PATH)
-    message(FATAL_ERROR "Could not find installed cmake config files.")
+# provides pkgconfig files only on UNIX
+if(NOT VCPKG_TARGET_IS_WINDOWS)
+    vcpkg_fixup_pkgconfig()
 endif()
 
-vcpkg_fixup_cmake_targets(CONFIG_PATH "${CONFIG_PATH}")
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 
-vcpkg_fixup_pkgconfig()
-
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
-
-# Handle copyright
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
-
-vcpkg_copy_pdbs()
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

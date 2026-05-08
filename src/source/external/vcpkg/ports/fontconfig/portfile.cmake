@@ -1,50 +1,67 @@
-set(FONTCONFIG_VERSION 2.13.1)
-
-if(NOT VCPKG_TARGET_IS_MINGW AND VCPKG_TARGET_IS_WINDOWS)
-    set(PATCHES fix_def_dll_name.patch)
-endif()
-
 vcpkg_from_gitlab(
     GITLAB_URL https://gitlab.freedesktop.org
     OUT_SOURCE_PATH SOURCE_PATH
     REPO fontconfig/fontconfig
-    REF 844d8709a1f3ecab45015b24b72dd775c13b2421 #v2.13.1
-    SHA512 fed0cf46f5dca9cb1e03475d7a8d7efdab06c7180fe0c922fb30cadfa91e1efe1f6a6e36d2fdb742a479cb09c05b0aefb5da5658bf2e01a32b7ac88ee8ff0b58
-    HEAD_REF master # branch name
-    PATCHES remove_tests.patch
-            build.patch
-            build2.patch
-            disable-install-data.patch
-            ${PATCHES}
+    REF ${VERSION}
+    SHA512 daa6d1e6058e12c694d9e1512e09be957ff7f3fa375246b9d13eb0a8cf2f21e1512a5cabe93f270e96790e2c20420bf7422d213e43ab9749da3255286ea65a7c
+    HEAD_REF master
+    PATCHES
+        emscripten.diff
+        no-etc-symlinks.patch
+        libgetopt.patch
+        fix-wasm-shared-memory-atomics.patch
 )
 
-vcpkg_find_acquire_program(GPERF)
-get_filename_component(GPERF_PATH ${GPERF} DIRECTORY)
-vcpkg_add_to_path(${GPERF_PATH})
+set(options "")
+if("nls" IN_LIST FEATURES)
+    list(APPEND options "-Dnls=enabled")
+else()
+    list(APPEND options "-Dnls=disabled")
+endif()
+if("tools" IN_LIST FEATURES)
+    list(APPEND options "-Dtools=enabled")
+else()
+    list(APPEND options "-Dtools=disabled")
+endif()
 
-vcpkg_configure_make(
-    AUTOCONFIG
-    COPY_SOURCE
-    SOURCE_PATH ${SOURCE_PATH}
+vcpkg_configure_meson(
+    SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
-        --disable-docs
-        ${OPTIONS}
-        ac_cv_type_pid_t=yes
-        --enable-iconv
-        "--with-libiconv=${CURRENT_INSTALLED_DIR}"
-        "--with-libiconv-includes=${CURRENT_INSTALLED_DIR}/include"
-    OPTIONS_DEBUG
-        "--with-libiconv-lib=${CURRENT_INSTALLED_DIR}/debug/lib"
-        ${OPT_DBG}
-    OPTIONS_RELEASE
-        "--with-libiconv-lib=${CURRENT_INSTALLED_DIR}/lib"
-        ${OPT_REL}
-    ADD_BIN_TO_PATH
-    ADDITIONAL_MSYS_PACKAGES xz findutils gettext gettext-devel  # for autopoint
+        ${options}
+        -Ddoc=disabled
+        -Dcache-build=disabled
+        -Diconv=enabled
+        -Dtests=disabled
+    ADDITIONAL_BINARIES
+        "gperf = ['${CURRENT_HOST_INSTALLED_DIR}/tools/gperf/gperf${VCPKG_HOST_EXECUTABLE_SUFFIX}']"
 )
 
-vcpkg_install_make(ADD_BIN_TO_PATH)
+# https://www.freedesktop.org/software/fontconfig/fontconfig-user.html
+# Adding OPTIONS for e.g. baseconfig-dir etc. won't work since meson will try to install into those dirs!
+# Since adding OPTIONS does not work use a replacement in the generated config.h instead
+set(replacement "")
+if(VCPKG_TARGET_IS_WINDOWS)
+    set(replacement "**invalid-fontconfig-dir-do-not-use**")
+endif()
+set(configfile "${CURRENT_BUILDTREES_DIR}/${TARGET_TRIPLET}-rel/config.h")
+vcpkg_replace_string("${configfile}" "${CURRENT_PACKAGES_DIR}" "${replacement}")
+vcpkg_replace_string("${configfile}" "#define FC_TEMPLATEDIR \"/share/fontconfig/conf.avail\"" "#define FC_TEMPLATEDIR \"/usr/share/fontconfig/conf.avail\"" IGNORE_UNCHANGED)
+if(NOT VCPKG_BUILD_TYPE)
+    set(configfile "${CURRENT_BUILDTREES_DIR}/${TARGET_TRIPLET}-dbg/config.h")
+    vcpkg_replace_string("${configfile}" "${CURRENT_PACKAGES_DIR}/debug" "${replacement}")
+    vcpkg_replace_string("${configfile}" "#define FC_TEMPLATEDIR \"/share/fontconfig/conf.avail\"" "#define FC_TEMPLATEDIR \"/usr/share/fontconfig/conf.avail\"" IGNORE_UNCHANGED)
+endif()
+
+vcpkg_install_meson(ADD_BIN_TO_PATH)
+
 vcpkg_copy_pdbs()
+#Fix missing libintl static dependency
+if("nls" IN_LIST FEATURES AND VCPKG_TARGET_IS_WINDOWS AND NOT VCPKG_TARGET_IS_MINGW)
+    if(NOT VCPKG_BUILD_TYPE)
+        vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/debug/lib/pkgconfig/fontconfig.pc" "-liconv" "-liconv -lintl" IGNORE_UNCHANGED)
+    endif()
+    vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/lib/pkgconfig/fontconfig.pc" "-liconv" "-liconv -lintl" IGNORE_UNCHANGED)
+endif()
 vcpkg_fixup_pkgconfig()
 
 # Fix paths in debug pc file.
@@ -59,23 +76,20 @@ endif()
 # Make path to cache in fonts.conf relative
 set(_file "${CURRENT_PACKAGES_DIR}/etc/fonts/fonts.conf")
 if(EXISTS "${_file}")
-    file(READ "${_file}" _contents)
-    string(REPLACE "${CURRENT_INSTALLED_DIR}/var/cache/fontconfig" "./../../var/cache/fontconfig" _contents "${_contents}")
-    string(REPLACE "/var" "/../var" _contents "${_contents}")
-    file(WRITE "${_file}" "${_contents}")
+    vcpkg_replace_string("${_file}" "${CURRENT_PACKAGES_DIR}/var/cache/fontconfig" "./../../var/cache/fontconfig" IGNORE_UNCHANGED)
 endif()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/var"
                     "${CURRENT_PACKAGES_DIR}/debug/share"
                     "${CURRENT_PACKAGES_DIR}/debug/etc")
 
-if(VCPKG_LIBRARY_LINKAGE STREQUAL dynamic)
+if(VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")
     if(VCPKG_TARGET_IS_WINDOWS)
         set(DEFINE_FC_PUBLIC "#define FcPublic __declspec(dllimport)")
     else()
         set(DEFINE_FC_PUBLIC "#define FcPublic __attribute__((visibility(\"default\")))")
     endif()
-    foreach(HEADER fcfreetype.h fontconfig.h)
+    foreach(HEADER IN ITEMS fcfreetype.h fontconfig.h)
         vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/include/fontconfig/${HEADER}"
             "#define FcPublic"
             "${DEFINE_FC_PUBLIC}"
@@ -83,24 +97,13 @@ if(VCPKG_LIBRARY_LINKAGE STREQUAL dynamic)
     endforeach()
 endif()
 
-file(INSTALL "${SOURCE_PATH}/COPYING" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)
-
-
-## Build the fontconfig cache
-if(NOT VCPKG_TARGET_IS_WINDOWS)
-    set(ENV{FONTCONFIG_PATH} "${CURRENT_PACKAGES_DIR}/etc/fonts")
-    set(ENV{FONTCONFIG_FILE} "${CURRENT_PACKAGES_DIR}/etc/fonts/fonts.conf")
-    vcpkg_execute_required_process(COMMAND "${CURRENT_PACKAGES_DIR}/tools/${PORT}/bin/fc-cache${VCPKG_TARGET_EXECUTABLE_SUFFIX}" --verbose
-                                   WORKING_DIRECTORY "${CURRENT_PACKAGES_DIR}/tools/${PORT}/bin"
-                                   LOGNAME fc-cache-${TARGET_TRIPLET})
+if("tools" IN_LIST FEATURES)
+    vcpkg_copy_tools(
+        TOOL_NAMES fc-match fc-cat fc-list fc-pattern fc-query fc-scan fc-cache fc-validate fc-conflist
+        AUTO_CLEAN
+    )
 endif()
 
-if(VCPKG_TARGET_IS_WINDOWS)
-    # Unnecessary make rule creating the fontconfig cache dir on windows. 
-    file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}LOCAL_APPDATA_FONTCONFIG_CACHE")
-endif()
-
-if(NOT VCPKG_TARGET_IS_LINUX)
-    set(VCPKG_TARGET_IS_LINUX 0) # To not leave empty AND statements in the wrapper
-endif()
 configure_file("${CMAKE_CURRENT_LIST_DIR}/vcpkg-cmake-wrapper.cmake.in" "${CURRENT_PACKAGES_DIR}/share/${PORT}/vcpkg-cmake-wrapper.cmake" @ONLY)
+file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/usage" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/COPYING")

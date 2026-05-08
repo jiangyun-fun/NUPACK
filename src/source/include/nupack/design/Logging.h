@@ -2,68 +2,18 @@
 #include "../reflect/Reflection.h"
 #include "../reflect/Serialize.h"
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
-template <class T, NUPACK_IF(!can_call<T>)>
-T result(T &&t) {return static_cast<T&&>(t);}
-
-template <class T, NUPACK_IF(can_call<T>)>
-auto result(T &&t) {return t();}
-
-
-struct Logger {
-    string filename;
-    std::shared_ptr<std::ostream> out;
-    bool active;
-
-    Logger() : Logger("") {}
-    Logger(string filename) : filename(filename), out(), active(false) {
-        if (filename == "") {
-            return;
-        } else if (filename == "stdout") {
-            out = std::shared_ptr<std::ostream>(&std::cout, [](auto){});
-        } else if (filename == "stderr") {
-            out = std::shared_ptr<std::ostream>(&std::cerr, [](auto){});
-        } else {
-            out = std::make_shared<std::ofstream>(filename);
-        }
-        active = true;
-    }
-
-    template <class ...Ts>
-    void log(Ts &&...ts) {
-        if (active) print_os<io::character<';'>, io::endl>(*out, result(fw<Ts>(ts))...);
-    }
-
-    NUPACK_REFLECT(Logger, filename, out, active);
-
-    auto save_repr() const { return filename; }
-
-    void load_repr(string filename) { *this = Logger(filename); }
-};
-
-
+// Triages data to multiple loggers
 struct Logs {
-    std::map<string, Logger> loggers;
+    // "time", "type", "depth", "psi_active", "psi_passive", "sequence", "defect"
+    std::function<void(real, string_view, int, int, int, json const &, real)> basic;
+    // "index", "name", "decomposition"
+    std::function<void(uint, string_view, json const &)> decomposition;
 
-    Logs() = default;
-    Logs(std::map<string, string> active_logs) {
-        for (auto const & [k, v] : active_logs)
-            loggers.emplace(k, Logger(v));
-    }
-
-    template <class ...Ts>
-    void log(string particular, Ts &&...ts) {
-        if (loggers.count(particular))
-            at(loggers, particular).log(fw<Ts>(ts)...);
-    }
-
-    auto save_repr() const { return loggers; }
-
-    void load_repr(std::map<string, Logger> loggers) { this->loggers = loggers; }
+    NUPACK_REFLECT(Logs, basic, decomposition);
 };
 
-static_assert(nupack::is_nupack<Logs> && nupack::has_save_repr<Logs> && !nupack::has_repr_names<Logs>);
 // static_assert(std::is_convertible_v<Logs, json>);
 // static_assert(!std::is_convertible_v<Logs, json>);
 static_assert(std::is_constructible_v<json, Logs>);
@@ -71,13 +21,13 @@ static_assert(std::is_constructible_v<json, Logs>);
 
 
 struct EngineObserver {
-    uint slowdown {0};
-    Logs *logs;
+    // "type", "length", "time", "cache possible"
+    std::function<void(string_view, uint, real, bool)> log;
+    uint slowdown=0;
 
-    template <class ...Ts>
-    void log(Ts &&...ts) { if (logs) logs->log(fw<Ts>(ts)...); }
+    NUPACK_REFLECT(EngineObserver, log, slowdown);
 };
 
 extern EngineObserver NullEngineObserver;
 
-}}
+}

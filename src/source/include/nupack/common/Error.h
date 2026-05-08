@@ -28,21 +28,22 @@
 
 /******************************************************************************************/
 
-/// Programming error exception, containing message and string/value pairs
-#define NUPACK_BUG(msg, ...) ({ \
-    std::stringstream NUPACK_BUFFER; NUPACK_BUFFER << std::boolalpha; \
-    NUPACK_BUFFER << ::nupack::message_string(NUPACK_FILE, __LINE__, msg); \
-    BOOST_PP_SEQ_FOR_EACH(NUPACK_APPEND, , BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__)) \
-    throw ::nupack::Bug(NUPACK_BUFFER.str()); \
-})
+#define NUPACK_NOT_IMPL NUPACK_ERROR("not implemented")
+
+/******************************************************************************************/
+
 /// Assert macro printing key-value pairs in ...
 #define NUPACK_ASSERT(x, ...) if (BOOST_UNLIKELY(!(x))) {NUPACK_ERROR("Assertion failure", x, __VA_ARGS__);}
 /// Assert with augmented printing for comparisons
 #define NUPACK_REQUIRE(lhs, op, rhs, ...) NUPACK_ASSERT(lhs op rhs, lhs, rhs, __VA_ARGS__)
 
+/// RelWithDebInfo versions
+#define NUPACK_QUICK_ASSERT(x, ...) if (!Release && BOOST_UNLIKELY(!(x))) {NUPACK_ERROR("Assertion failure", x, __VA_ARGS__);}
+#define NUPACK_QUICK_REQUIRE(lhs, op, rhs, ...) NUPACK_QUICK_ASSERT(lhs op rhs, lhs, rhs, __VA_ARGS__)
+
 /// Debug versions
-#define NUPACK_DASSERT(x, ...) if (Debug && BOOST_UNLIKELY(!(x))) {NUPACK_ERROR("Assertion failure", x, __VA_ARGS__);}
-#define NUPACK_DREQUIRE(lhs, op, rhs, ...) NUPACK_DASSERT(lhs op rhs, lhs, rhs, __VA_ARGS__)
+#define NUPACK_DEBUG_ASSERT(x, ...) if (Debug && BOOST_UNLIKELY(!(x))) {NUPACK_ERROR("Assertion failure", x, __VA_ARGS__);}
+#define NUPACK_DEBUG_REQUIRE(lhs, op, rhs, ...) NUPACK_DEBUG_ASSERT(lhs op rhs, lhs, rhs, __VA_ARGS__)
 
 /******************************************************************************************/
 
@@ -67,15 +68,11 @@ static string join_message(Ts const &...ts) {
 
 /// User caused error
 struct Error: public std::runtime_error {
-    Error(std::string);
+    using Function = std::function<void(std::ostream &)>;
+    Error(Function const &f);
 
     template <class ...Ts>
-    Error(Ts const &...ts): Error(join_message("NUPACK error: ", ts...)) {};
-};
-
-/// Developer caused error
-struct Bug: public std::runtime_error {
-    Bug(string const &message): std::runtime_error(join_message("NUPACK bug", message, '\n', get_backtrace())){};
+    Error(Ts const &...ts) : Error(Function([&](std::ostream &os) {((os << ts), ...);})) {}
 };
 
 /// Compile-time deduced error

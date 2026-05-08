@@ -2,7 +2,7 @@
 #include <nupack/execution/Local.h>
 #include <nupack/types/IO.h>
 #include <nupack/types/Sequence.h>
-#include <nupack/types/Domain.h>
+#include <nupack/types/Named.h>
 #include <nupack/types/Structure.h>
 #include <nupack/common/Costs.h>
 
@@ -20,16 +20,31 @@ void render(Document &doc, Type<Local> t) {
 
 void render_constants(Document &doc) {
     doc.render<Base>();
+    doc.render<Wildcard>();
+
     doc.render<Sequence>();
-    doc.render<Strand>();
     doc.render<Domain>();
-    doc.render<NamedStrand>();
-    doc.render<NamedComplex>();
-    doc.render<TargetStrand>();
+
+    doc.render<NamedSequence>();
     doc.render<Complex>();
+    doc.render<NamedComplex>();
+    doc.render<Tube>();
+
+    doc.render<NamedDomain>();
+    doc.render<TargetStrand>();
+    doc.render<TargetComplex>();
+    doc.render<TargetTube>();
+
     doc.render<PairList>();
     doc.render<Structure>();
-    doc.render<TargetComplex>();
+
+    doc.function("core.open_log", [](std::string s) {
+        io::set_out(std::make_shared<std::ofstream>(s));
+    });
+
+    doc.function("core.close_log", [] {
+        io::set_out(std::shared_ptr<std::ostream>(&std::cout, NoOp()));
+    });
 
     doc.function("constants.ldexp", [](float f, std::int32_t i) {
         print(bool(i));
@@ -46,8 +61,9 @@ void render_constants(Document &doc) {
 
     doc.function("core.test_matrix", [](Mat<double> const &x) {return x;});
 
-    doc.render<SparsePairs<real>>();
-    doc.function("core.sparse_pair_matrix", sparse_pair_matrix<real>);
+    doc.function("constants.run_length_encoding", io::run_length_encoding);
+
+    doc.render<PairMatrix<real>>();
 
     /// Utility functions
     doc.function("constants.dp_to_pairs", [](std::string_view s) {return io::to_pairs(s);});
@@ -55,25 +71,26 @@ void render_constants(Document &doc) {
     doc.function("constants.unit_evaluation_cost_table", unit_evaluation_cost_table);
     doc.function("constants.unit_evaluation_costs", unit_evaluation_costs);
     doc.function("constants.unit_subblock_cost", unit_subblock_cost);
-    doc.function("constants.subblock_cost", subblock_cost<small_vec<std::size_t>>);
+    doc.function("constants.subblock_cost", subblock_cost<vec<std::size_t>>);
 
     doc.function("constants.trim_cxx", [](std::string s) {return trim_type_name(std::move(s), 10000);});
-    doc.function("constants.rotational_symmetry", &rotational_symmetry<small_vec<uint>>);
-    doc.function("constants.compute_necklaces", [](rebind::AnnotatedCallback<void, small_vec<uint>> f, uint size, uint n) {
-        return compute_necklaces(small_vec<uint>(size), n, std::move(f));
+    doc.function("constants.rotational_symmetry", &rotational_symmetry<vec<uint>>);
+    doc.function("core.compute_necklaces", [](rebind::AnnotatedCallback<void, vec<uint>> f, uint size, uint n) {
+        return compute_necklaces(vec<uint>(size, 0), n, std::move(f));
     });
 
     // doc.function("numeric.nnls", nnls<float, std::uint16_t, float>);
     // doc.function("numeric.nnls", nnls<float, float, float>);
     // doc.function("numeric.nnls", nnls<double, double, double>);
-    doc.function("constants.water_molarity", water_molarity);
-    doc.function("constants.dna_salt_correction", dna_salt_correction);
+    doc.function("constants.water_molarity", water_molarity<real>);
+    doc.function("constants.dna_salt_correction", dna_salt_correction<real, real, real>);
     doc.object("constants.ZeroCinK", ZeroCinK);
-    doc.object("constants.DefaultTemperature", DefaultTemperature);
-    doc.object("constants.BoltzmannConstant", Kb);
-    doc.object("constants.GitBranch", GitBranch);
-    doc.object("constants.GitRevision", GitRevision);
-    doc.object("constants.Version", Version);
+    doc.object("constants.default_temperature", DefaultTemperature);
+    doc.object("constants.boltzmann_constant", Kb);
+    doc.object("constants.git_branch", GitBranch);
+    doc.object("constants.git_revision", GitRevision);
+    doc.object("constants.version", Version);
+    doc.object("constants.build_type", BuildType);
 
 #   define NUPACK_TMP(scope, name, val)         \
         doc.function(scope name, [] {return val;}); \
@@ -104,6 +121,7 @@ void Renderer<nupack::json>::operator()(Document &doc) const {
     doc.type(t, "core.JSON");
     doc.method(t, "new", construct<>(t));
     doc.method(t, "new", [](std::string_view s) {return J::parse(s);});
+    doc.method(t, "new", construct<J>(t));
     doc.method(t, "load", [](J &j, std::string_view s) {j = J::parse(s);});
     doc.method(t, "dump", [](J const &j, unsigned indent) {return indent ? j.dump(indent) : j.dump();});
 
@@ -115,6 +133,7 @@ void Renderer<nupack::json>::operator()(Document &doc) const {
         if (!ifs.good()) NUPACK_ERROR("invalid file", path);
         ifs >> j;
     });
+    nupack::render_comparisons(doc, t);
 }
 
 }

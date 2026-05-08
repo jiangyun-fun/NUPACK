@@ -14,10 +14,6 @@ template <class ...Ts> using Variant = std::variant<Ts...>;
 
 NUPACK_DEFINE_VARIADIC(is_variant, Variant, class);
 
-/// Get the types out of a variant
-template <class ...Ts>
-struct detail::as_pack_t<Variant<Ts...>> {using type = pack<Ts...>;};
-
 /// Like std::visit but the function is last
 template <class V, class ...Vs, NUPACK_IF(is_variant<decay<V>>)>
 decltype(auto) dispatch(V &&v, Vs &&...vs) {
@@ -32,7 +28,7 @@ decltype(auto) dispatch(V &&v, Vs &&...vs) {
 
 namespace detail {
     template <class A, class T>
-    A get_variant(std::size_t n) {if (n) throw std::out_of_range("any out of range"); return T();}
+    A get_variant(std::size_t n) {if (n) throw std::out_of_range("get_variant: out of range"); return T();}
 
     template <class A, class T, class U, class ...Ts>
     A get_variant(std::size_t n) {return n ? get_variant<A, U, Ts...>(n - 1) : T();}
@@ -40,13 +36,13 @@ namespace detail {
 
 /// Helper to create a variant from an enum/integer
 template <class T>
-struct VariantEnum {
+struct VariantEnum : MemberOrdered {
     T index;
     NUPACK_REFLECT(VariantEnum, index);
     constexpr VariantEnum(T i={}) : index(i) {}
 
     template <class ...Ts>
-    constexpr VariantEnum(Variant<Ts...> const &a) : index(a.which()) {}
+    constexpr VariantEnum(Variant<Ts...> const &a) : index(a.index()) {}
 
     template <class ...Ts>
     operator Variant<Ts...>() const {return detail::get_variant<Variant<Ts...>, Ts...>(static_cast<std::size_t>(index));}
@@ -61,6 +57,14 @@ decltype(auto) fork(V &&v, F &&f) {return std::visit(fw<F>(f), fw<V>(v));}
 /// overload for std::visit in case argument is not a variant
 template <class V, class F, NUPACK_IF(!is_variant<decay<V>>)>
 decltype(auto) fork(V &&v, F &&f) {return fw<F>(f)(fw<V>(v));}
+
+/// get_first for variant, only one variant argument
+template <class V, NUPACK_IF(is_variant<decay<V>>)>
+decltype(auto) get_first(V &&v) {return std::get<0>(fw<V>(v));}
+
+/// overload for get_first in case argument is not a variant
+template <class V, NUPACK_IF(!is_variant<decay<V>>)>
+decltype(auto) get_first(V &&v) {return fw<V>(v);}
 
 /******************************************************************************************/
 
@@ -101,6 +105,24 @@ template <class F, class ...Vs, class ...Ts>
 auto map_variant(Variant<Vs...> &&v, F &&f, Ts &&...ts) {
     using R = Variant<decltype(fw<F>(f)(declval<Vs &&>(), declval<Ts &&>()...))...>;
     return std::visit([&](auto &&i) -> R {return fw<F>(f)(std::move(i), fw<Ts>(ts)...);}, std::move(v));
+}
+
+/******************************************************************************************/
+
+template <class V, class F, class ...Fs>
+auto overload_variant_impl(V &&v, F &&f, Fs &&...fs) {
+    if constexpr(std::is_invocable_v<F &&, V &&>) return (fw<F>(f))(fw<V>(v));
+    else return overload_variant_impl(v, fw<Fs>(fs)...);
+}
+
+template <class V, class ...Fs>
+auto overload_variant(V &&v, Fs &&...fs) {
+    return std::visit([&](auto &&v) {return overload_variant_impl(fw<decltype(v)>(v), fw<Fs>(fs)...);}, fw<V>(v));
+}
+
+template <class R, class V, class ...Fs>
+auto overload_variant(V &&v, Fs &&...fs) {
+    return std::visit([&](auto &&v) -> R {return overload_variant_impl(fw<decltype(v)>(v), fw<Fs>(fs)...);}, fw<V>(v));
 }
 
 /******************************************************************************************/

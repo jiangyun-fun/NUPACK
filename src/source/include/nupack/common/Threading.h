@@ -19,6 +19,7 @@
 #   if __has_include(<shared_mutex>)
 #       include <shared_mutex>
 #   else
+        include <boost/thread/shared_mutex.hpp>
 #       define NUPACK_NO_SHARED_MUTEX
 #   endif
 #endif
@@ -33,14 +34,11 @@ template <class T> void sleep(T const &t) {std::this_thread::sleep_for(t);}
 /******************************************************************************************/
 
 #ifdef NUPACK_NO_SHARED_MUTEX
-    /// stand-in type for std::shared_timed_mutex
-    using SharedMutex = std::mutex;
-    inline auto shared_lock(SharedMutex &m) {return std::unique_lock<SharedMutex>(m);}
+    /// stand-in type for std::shared_mutex
+    using SharedMutex = boost::shared_mutex;
 #else
-    using SharedMutex = std::shared_timed_mutex;
-    inline auto shared_lock(SharedMutex &m) {return std::shared_lock<SharedMutex>(m);}
+    using SharedMutex = std::shared_mutex;
 #endif
-inline auto unique_lock(SharedMutex &m) {return std::unique_lock<SharedMutex>(m);}
 
 /******************************************************************************************/
 

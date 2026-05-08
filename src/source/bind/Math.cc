@@ -1,4 +1,6 @@
-#include "Math.h"
+#include "Bind.h"
+#include <nupack/types/Matrix.h>
+#include <nupack/concentration/Equilibrate.h>
 
 namespace nupack {
 
@@ -13,18 +15,7 @@ void render(Document &doc, Type<Options> t);
 template <class V>
 void render(Document &doc, Type<Output<V>> t) {
     doc.type(t, "concentration.Output");
-    render_public(doc, t);
-}
-
-/**************************************************************************************/
-
-rebind::Variable response(std::type_index, Options const &v) {return to_dictionary(v);}
-
-/**************************************************************************************/
-
-std::optional<Options> request(Type<Options>, rebind::Variable const &r, rebind::Dispatch &msg) {
-    if (auto z = r.request<rebind::Dictionary>()) return from_dictionary<Options>(std::move(*z), msg);
-    return msg.error("Not a dictionary-like type");
+    NUPACK_PUBLIC(t, solution, dual_solution, objective, error, iters, converged);
 }
 
 /**************************************************************************************/
@@ -32,8 +23,8 @@ std::optional<Options> request(Type<Options>, rebind::Variable const &r, rebind:
 void render(Document &doc, Type<Options> t) {
     doc.type(t, "concentration.Options");
     doc.method(t, "new", rebind::construct(t));
-    doc.method(t, "set_method", [](Options &o, uint n) {NUPACK_REQUIRE(n, <, 6); o.method = static_cast<Method>(n);});
-    render_public(doc, t);
+    doc.method(t, "set_method", [](Options &o, std::string_view n) {o.method = enum_from_string<Method>(n);});
+    NUPACK_PUBLIC(t, max_iters, tolerance, delta_min, delta_max, orthogonalize);
 }
 
 }

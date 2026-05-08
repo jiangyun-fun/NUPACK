@@ -18,10 +18,10 @@ namespace nupack {
 /******************************************************************************************/
 
 /// Default unary operation which returns the input itself
-struct Identity {template <class T> constexpr remove_rref<T &&> operator() (T &&t) const {return fw<T>(t);};};
-struct NoOp {template <class ...Ts> void operator() (Ts const &...) const {};};
-struct AlwaysTrue {template <class ...Ts> constexpr bool operator() (Ts const &...) const {return true;};};
-struct AlwaysFalse {template <class ...Ts> constexpr bool operator() (Ts const &...) const {return false;};};
+struct Identity {template <class T> constexpr remove_rref<T &&> operator() (T &&t) const noexcept {return fw<T>(t);};};
+struct NoOp {template <class ...Ts> void operator() (Ts const &...) const noexcept {};};
+struct AlwaysTrue {template <class ...Ts> constexpr bool operator() (Ts const &...) const noexcept {return true;};};
+struct AlwaysFalse {template <class ...Ts> constexpr bool operator() (Ts const &...) const noexcept {return false;};};
 
 
 /******************************************************************************************/
@@ -84,6 +84,12 @@ template <class T, NUPACK_IF(derives_from<T, TotallyOrdered>)>
 constexpr bool operator<=(T const &i, T const &j) {return !(j < i);}
 template <class T, NUPACK_IF(derives_from<T, TotallyOrdered>)>
 constexpr bool operator>=(T const &i, T const &j) {return !(i < j);}
+
+template <class T>
+struct CompareByKey : TotallyOrdered {
+    friend constexpr bool operator<(T const &a, T const &b) {return a.compare_key() < b.compare_key();};
+    friend constexpr bool operator==(T const &a, T const &b) {return a.compare_key() == b.compare_key();}
+};
 
 /******************************************************************************************/
 

@@ -1,38 +1,73 @@
-set(VERSION v1.1)
-
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO open62541/open62541
-    REF 8ad84962e67987af91d7f746425d7b26be47a0cb # v1.1.2
-    SHA512 7cca9458cdfbc386c0a7012373c91e9ab3a4876303db95a513f62cf26e751446bd73c0fa1f76e0821d2a47747bfb4612e8822389bc9002775636db8f8093f94c
+    REF v${VERSION}
+    SHA512 a6493a96e911e4b67dd017125eedf6f3d794a8c931d897e3fdd050a8e65c20dcb84e9dfad207d1fcec6d2f019ad406954d1711827a74c1665fe24cc32f3b019f
     HEAD_REF master
+    PATCHES
+        android-librt.diff
+        clang-sanitizer.diff
 )
 
-vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
-    openssl UA_ENABLE_ENCRYPTION_OPENSSL
-    mbedtls UA_ENABLE_ENCRYPTION_MBEDTLS
+# disable docs
+vcpkg_replace_string("${SOURCE_PATH}/CMakeLists.txt" "add_subdirectory(doc)" "")
+vcpkg_replace_string("${SOURCE_PATH}/CMakeLists.txt" "include(linting_target)" "")
+
+# do not enable LTO by default
+vcpkg_replace_string("${SOURCE_PATH}/CMakeLists.txt" "set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)" "")
+
+vcpkg_replace_string("${SOURCE_PATH}/tools/cmake/open62541Config.cmake.in" "find_dependency(PythonInterp REQUIRED)" "")
+
+vcpkg_check_features(
+    OUT_FEATURE_OPTIONS FEATURE_OPTIONS
+    FEATURES
+        amalgamation UA_ENABLE_AMALGAMATION
+        diagnostics UA_ENABLE_DIAGNOSTICS
+        discovery UA_ENABLE_DISCOVERY
+        historizing UA_ENABLE_HISTORIZING
+        methodcalls UA_ENABLE_METHODCALLS
+        subscriptions UA_ENABLE_SUBSCRIPTIONS
+        subscriptions-events UA_ENABLE_SUBSCRIPTIONS_EVENTS
 )
+
+if("openssl" IN_LIST FEATURES)
+    set(OPEN62541_ENCRYPTION_OPTIONS -DUA_ENABLE_ENCRYPTION=OPENSSL)
+    if("mbedtls" IN_LIST FEATURES)
+        message(WARNING "Only one encryption method can be used. When both [openssl] and [mbedtls] "
+            "are on, openssl is used. To use [mbedtls], don't enable [openssl]. To suppress this "
+            "message, don't enable [mbedtls]")
+    endif()
+elseif("mbedtls" IN_LIST FEATURES)
+    set(OPEN62541_ENCRYPTION_OPTIONS -DUA_ENABLE_ENCRYPTION=MBEDTLS)
+endif()
+
+if("multithreading" IN_LIST FEATURES)
+    set(OPEN62541_MULTITHREADING_OPTIONS -DUA_MULTITHREADING=100)
+endif()
 
 vcpkg_find_acquire_program(PYTHON3)
 get_filename_component(PYTHON3_DIR "${PYTHON3}" DIRECTORY)
 vcpkg_add_to_path("${PYTHON3_DIR}")
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
         ${FEATURE_OPTIONS}
-        -DOPEN62541_VERSION=${VERSION}
-    OPTIONS_DEBUG
-        -DCMAKE_DEBUG_POSTFIX=d
+        ${OPEN62541_ENCRYPTION_OPTIONS}
+        ${OPEN62541_MULTITHREADING_OPTIONS}
+        "-DOPEN62541_VERSION=v${VERSION}"
+        -DUA_ENABLE_DEBUG_SANITIZER=OFF
+        -DUA_MSVC_FORCE_STATIC_CRT=OFF
+        -DCMAKE_DISABLE_FIND_PACKAGE_Git=ON
 )
 
-vcpkg_install_cmake()
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/${PORT})
+vcpkg_cmake_install()
+vcpkg_cmake_config_fixup(CONFIG_PATH "lib/cmake/open62541")
 vcpkg_copy_pdbs()
+vcpkg_fixup_pkgconfig()
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/share)
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/share/open62541/tools)
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/share/open62541/tools")
 
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

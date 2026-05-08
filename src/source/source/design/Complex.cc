@@ -1,7 +1,7 @@
 #include <nupack/design/Complex.h>
 #include <nupack/design/ThermoWrapper.h>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 /**
  * @brief Compute the logarithm of the partition function for the complex
@@ -13,28 +13,25 @@ namespace nupack { namespace newdesign {
  *
  * @return [description]
  */
-real Complex::log_pfunc(Local env, ModelMap const &map, Sequence const &s, EngineObserver &obs) const {
-    env = threshold(env, *this);
-    return newdesign::partition_function(env, to_nick_sequence(strands, s), target.environment(map), obs)
+real Complex::log_pfunc(Env const &env, ModelMap const &map, Sequence const &s, EngineObserver &obs) const {
+    return design::log_partition_function(env, to_nick_sequence(strands, s), target.environment(map), obs)
          - symmetry_correction()
          - target.model.beta * bonus;
 };
 
 #if 1
 
-real Complex::log_pf_single_strands(Local env, ModelMap const &map, Sequence const &s, EngineObserver &obs) const {
+real Complex::log_pf_single_strands(Env const &env, ModelMap const &map, Sequence const &s, EngineObserver &obs) const {
     auto seqs = to_nick_sequence(strands, s);
     real log_pf = 0;
     auto &t_env = target.environment(map);
 
-    for (auto const &s : seqs.strands()) {
+    for (auto const &s : seqs) {
         ::nupack::Complex seq {s};
-        auto val = t_env.get_pfunc(seq);
-        if (std::holds_alternative<real>(val)) {
-            log_pf += std::get<real>(val);
-        }
-        else {
-            auto temp = newdesign::partition_function(env, seq, t_env, obs);
+        if (auto val = t_env.get_pfunc(seq)) {
+            log_pf += *val;
+        } else {
+            auto temp = design::log_partition_function(env, seq, t_env, obs);
             t_env.add_pfunc(seq, temp);
             log_pf += temp;
         }
@@ -58,11 +55,10 @@ real Complex::log_pf_single_strands(Local env, ModelMap const &map, Sequence con
  *
  * @return The pair probabilities matrix
  */
-Tensor<real, 2> Complex::pair_probabilities(Local env, ModelMap const &map, Sequence const &s, EngineObserver &obs) const {
+Mat<real> Complex::pair_probabilities(Env const &env, ModelMap const &map, Sequence const &s, EngineObserver &obs) const {
     /* skip entirely if no target structure as it won't be used */
     if (!is_on_target()) return {};
-    env = threshold(env, *this);
-    return newdesign::pair_probability(env, to_nick_sequence(strands, s), target.environment(map), obs).first;
+    return design::raw_pair_probability(env, to_nick_sequence(strands, s), target.environment(map), Sparsity(), obs).first.full();
 };
 
 
@@ -78,7 +74,7 @@ Tensor<real, 2> Complex::pair_probabilities(Local env, ModelMap const &map, Sequ
  *
  * @return A defect object
  */
-Defect Complex::defect(Local env, ModelMap const &map, Sequence const &s, EngineObserver &obs) const {
+Defect Complex::defect(Env const &env, ModelMap const &map, Sequence const &s, EngineObserver &obs) const {
     /* skip if no target structure */
     if (!target.has_structure()) return Defect();
 
@@ -110,11 +106,11 @@ Defect Complex::defect(Local env, ModelMap const &map, Sequence const &s, Engine
  * @param depth the level in the tree
  * @return the symmetry- and join penalty-corrected partition function estimate
  */
-real Complex::log_pfunc(Local env, ModelMap const &map, Sequence const &s,
+real Complex::log_pfunc(Env const &env, ModelMap const &map, Sequence const &s,
         uint depth, LevelSpecification const &indiv, EngineObserver &obs) const {
     auto ret = decomposition.dynamic_program(env, target.environment(map), s, depth, params, indiv, obs).second;
     if (std::isnan(ret)) {
-        auto info = const_cast<Complex *>(this)->hierarchical_pfunc(map, s, depth);
+        auto info = const_cast<Complex *>(this)->hierarchical_pfunc(env, map, s, depth);
         NUPACK_ERROR("partition function estimate is NaN", to_nick_sequence(strands, s), depth, info);
     }
     // auto extra = (depth == 0 && !(indiv)) ? real(0) : join_penalty(map);
@@ -137,7 +133,7 @@ real Complex::log_pfunc(Local env, ModelMap const &map, Sequence const &s,
  * @param depth the level in the tree
  * @return the symmetry- and join penalty-corrected pair probabilities matrix estimate
  */
-ProbabilityMatrix Complex::pair_probabilities(Local env, ModelMap const &map, Sequence const &s,
+ProbabilityMatrix Complex::pair_probabilities(Env const &env, ModelMap const &map, Sequence const &s,
         uint depth, LevelSpecification const &indiv, EngineObserver &obs) const {
     return decomposition.dynamic_program(env, target.environment(map), s, depth, params, indiv, obs).first;
 }
@@ -155,7 +151,7 @@ ProbabilityMatrix Complex::pair_probabilities(Local env, ModelMap const &map, Se
  * @param depth the level in the tree
  * @return the defect estimate per nucleotide
  */
-Defect Complex::defect(Local env, ModelMap const &map, Sequence const &s,
+Defect Complex::defect(Env const &env, ModelMap const &map, Sequence const &s,
         uint depth, LevelSpecification const &indiv, EngineObserver &obs) const {
     if (!target.has_structure()) return Defect();
 
@@ -206,9 +202,9 @@ void Complex::structure_decompose() {
  * @param s the sequence to use when computing pair probabilities
  * @param map the cache of models to draw the evaluation model from
  */
-bool Complex::probability_decompose(Sequence const &s, ModelMap const &map,
+bool Complex::probability_decompose(Env const &env, Sequence const &s, ModelMap const &map,
         uint depth, LevelSpecification const &indiv, EngineObserver &obs) {
-    return decomposition.probability_decompose(params, s, target.environment(map), depth, indiv, obs);
+    return decomposition.probability_decompose(env, params, s, target.environment(map), depth, indiv, obs);
 }
 
 /**
@@ -247,11 +243,10 @@ vec<int> Complex::get_node_indices(uint depth, bool include_leaves) const {
  * @return string information about every node encountered during evaluation of
  * the estimate at a given depth
  */
-string Complex::hierarchical_pfunc(ModelMap const &map, Sequence const &s, uint depth, EngineObserver &obs) {
+string Complex::hierarchical_pfunc(Env const &env, ModelMap const &map, Sequence const &s, uint depth, EngineObserver &obs) {
     index_nodes();
     auto &ms = target.environment(map);
     std::ostringstream ss;
-    Local env;
 
     for (auto i : range(depth + 1)) {
         auto nodes = get_node_indices(i);
@@ -260,7 +255,7 @@ string Complex::hierarchical_pfunc(ModelMap const &map, Sequence const &s, uint 
         auto f = [&] (auto &x) {
             if (contains(nodes, x.index)) {
                 auto nickseq = to_nick_sequence(x.sequence, s);
-                print_os(ss, x.index, x.enforced_pairs, x.sequence, x.structure, nickseq, x.dynamic_program(env, ms, s, cur_depth, params, {}, obs).second, newdesign::partition_function(env, nickseq, ms, obs));
+                print_os(ss, x.index, x.enforced_pairs, x.sequence, x.structure, nickseq, x.dynamic_program(env, ms, s, cur_depth, params, {}, obs).second, design::log_partition_function(env, nickseq, ms, obs));
             }
         };
         decomposition.apply_recursive(f);
@@ -287,4 +282,4 @@ string Complex::json_decomposition() const {
     return ss.str();
 }
 
-}}
+}

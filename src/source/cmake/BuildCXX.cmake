@@ -18,27 +18,28 @@ cmake_policy(SET CMP0058 NEW)
 
 message("-- Building project NUPACK ${NUPACK_VERSION}")
 
-include(${SOURCE_DIR}/external/cmake-modules/GetGitRevisionDescription.cmake)
+include(${CMAKE_CURRENT_SOURCE_DIR}/external/cmake-modules/GetGitRevisionDescription.cmake)
 get_git_head_revision(NUPACK_GIT_BRANCH NUPACK_GIT_REVISION)
-message("-- On git branch \"${NUPACK_GIT_BRANCH}\"")
+if(NUPACK_GIT_BRANCH)
+    message("-- On deduced git branch \"${NUPACK_GIT_BRANCH}\", revision \"${NUPACK_GIT_REVISION}\"")
+elseif(DEFINED ENV{NUPACK_GIT_BRANCH} AND DEFINED ENV{NUPACK_GIT_REVISION})
+    set(NUPACK_GIT_BRANCH $ENV{NUPACK_GIT_BRANCH})
+    set(NUPACK_GIT_REVISION $ENV{NUPACK_GIT_REVISION})
+    message("-- On preset git branch \"${NUPACK_GIT_BRANCH}\", revision \"${NUPACK_GIT_REVISION}\"")
+else()
+    message("-- Could not detect git information")
+endif()
 
 ################################################################################
 
 # set(CMAKE_SKIP_RPATH TRUE)
 # set(CMAKE_CXX_VISIBILITY_PRESET hidden) do this for Python and libnupack.a in future?
 
-
 ################################################################################
 
 add_library(cxxflags INTERFACE)
-target_compile_options(cxxflags INTERFACE $<$<CONFIG:Release>:-Ofast -fomit-frame-pointer>)
-
-if(${can_use_shared_mutex})
-    message("-- Using std::shared_timed_mutex in C++")
-else()
-    message("-- Not using std::shared_timed_mutex in C++")
-    target_compile_definitions(cxxflags INTERFACE NUPACK_NO_SHARED_MUTEX=1)
-endif()
+target_compile_options(cxxflags INTERFACE $<$<CONFIG:Release>:-O3 -fomit-frame-pointer>)
+# Be very wary of -ofast. Our code depends on proper treatment of NaN and inf!
 
 if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
     message("-- Using \"AppleClang\" compiler flags")
@@ -48,9 +49,12 @@ if("${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
 elseif("${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
     message("-- Using \"Clang\" compiler flags")
     target_compile_options(cxxflags INTERFACE
-        ${NUPACK_SIMD_FLAGS} -ftemplate-backtrace-limit=0 -fdiagnostics-color=always -ftemplate-depth=1024 -Wpessimizing-move
-        $<$<CONFIG:RelWithDebInfo>:-pedantic -Wfatal-errors -Werror=return-type -Wno-gnu-zero-variadic-macro-arguments -Wno-gnu-statement-expression>
-        $<$<CONFIG:Debug>:-Wall -Wextra -Wno-sign-compare -Wno-unused-variable -Wno-unused-parameter -Wno-reorder -Wno-unused-private-field>)
+        ${NUPACK_SIMD_FLAGS} -ftemplate-backtrace-limit=0 -fdiagnostics-color=always -ftemplate-depth=1024 -Wpessimizing-move -Wno-c++20-designator
+        -ftemplate-backtrace-limit=0 -fdiagnostics-color=always -ftemplate-depth=1024 -Wpessimizing-move
+        $<$<CONFIG:Release>:-ffp-contract=fast> # these math optimizations should be OK to use.
+        $<$<CONFIG:RelWithDebInfo>:-pedantic -Wall -Wextra -Wfatal-errors -Werror=return-type -Wuninitialized -Wno-missing-field-initializers -Wno-unused-but-set-variable
+            -Wno-unused-private-field -Wno-sign-compare -Wno-unused-variable -Wno-unused-parameter -Wno-gnu-zero-variadic-macro-arguments -Wno-gnu-statement-expression -Wno-c++20-extensions>
+        $<$<CONFIG:Debug>:-Wall -Wextra -Wuninitialized -Wno-sign-compare -Wno-unused-variable -Wno-unused-parameter -Wno-reorder -Wno-unused-private-field -Wmissing-field-initializers>)
     if(${CMAKE_CXX_COMPILER} MATCHES "templight")
         message("-- Using \"templight\" compiler flags")
         target_compile_options(cxxflags -Xtemplight -profiler -Xtemplight -ignore-system)
@@ -75,9 +79,29 @@ endif()
 add_library(libnupack STATIC ${LIBNUPACK_FILES})
 add_library(nupack::core ALIAS libnupack)
 target_compile_definitions(libnupack PUBLIC $<$<CONFIG:Debug>:NUPACK_DEBUG=2> $<$<CONFIG:RelWithDebInfo>:NUPACK_DEBUG=1>)
-target_compile_features(libnupack PUBLIC cxx_std_17)
+target_compile_features(libnupack PUBLIC cxx_std_20)
+
+if(NUPACK_SIMD)
+    message("-- Using SIMD instructions for dynamic programs")
+else()
+    message("-- Not using SIMD instructions for dynamic programs")
+    target_compile_definitions(libnupack PUBLIC NUPACK_NO_SIMD)
+endif()
 
 ################################################################################
+
+find_package(Protobuf CONFIG REQUIRED)
+protobuf_generate(LANGUAGE cpp TARGET libnupack PROTOS proto/public.proto PROTOC_OUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/include/nupack/)
+target_include_directories(libnupack PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include/nupack)
+
+################################################################################
+
+if(NUPACK_SIMD)
+    message("-- Using SIMD instructions for dynamic programs")
+else()
+    message("-- Not using SIMD instructions for dynamic programs")
+    target_compile_definitions(libnupack PUBLIC NUPACK_NO_SIMD)
+endif()
 
 # This variable goes into Version.h
 if(NUPACK_DETERMINISTIC)
@@ -99,20 +123,19 @@ endif()
 
 # Version.h is configured to hold some CMake variables including the version number and other things
 set(NUPACK_DATA_DIR ${CMAKE_SOURCE_DIR}/data)# CACHE PATH "Path to data files for testing")
-set(NUPACK_PARAMETERS_DIR ${SOURCE_DIR}/parameters) # CACHE PATH "Path to parameter file directory")
-set(NUPACK_RENDERS "(render_constants)(render_math)(render_model)(render_thermo)(render_design)${NUPACK_RENDERS}")
+set(NUPACK_PARAMETERS_DIR ${SOURCE_DIR}/parameters CACHE PATH "Path to parameter file directory")
 configure_file(${SOURCE_DIR}/include/nupack/Version.h.in ${BUILD_DIR}/include/nupack/Version.h)
 
 ################################################################################
 
-target_link_libraries(libnupack PRIVATE backward cxxflags)
+target_link_libraries(libnupack PRIVATE nupack-backward cxxflags)
 
-target_link_libraries(libnupack PUBLIC json TBB::tbb nupack_lapack fmt::fmt
-    armadillo boostsimd nupack-boost spdlog::spdlog)
+target_link_libraries(libnupack PUBLIC json TBB::tbb nupack_lapack fmt::fmt nupack-solver Taskflow::Taskflow
+nupack-armadillo nupack-boost spdlog::spdlog nupack-simd yaml-cpp::yaml-cpp protobuf::libprotobuf magic_enum::magic_enum)
 
 target_compile_features(libnupack PUBLIC cxx_auto_type cxx_thread_local)
 set_target_properties(libnupack PROPERTIES OUTPUT_NAME "nupack")
-list(APPEND nupack_cxx_targets libnupack)
+nupack_cxx_target(libnupack)
 
 target_include_directories(libnupack PUBLIC ${SOURCE_DIR}/include ${BUILD_DIR}/include)
 
@@ -124,18 +147,17 @@ install(DIRECTORY ${SOURCE_DIR}/parameters DESTINATION ${CMAKE_INSTALL_DATADIR}/
 
 ################################################################################
 
-if(NUPACK_SHARED)
-    message("-- Building shared NUPACK binding library")
-    add_library(nupack-bind SHARED ${NUPACK_MODULE_FILES})
-else()
-    message("-- Building static NUPACK binding library")
-    add_library(nupack-bind STATIC ${NUPACK_MODULE_FILES})
-endif()
+message("-- Building static NUPACK binding library")
+
+add_library(nupack-bind-objects OBJECT ${NUPACK_MODULE_FILES})
+target_link_libraries(nupack-bind-objects PUBLIC cxxflags libnupack new_design librebind)
+nupack_cxx_target(nupack-bind-objects)
+
+add_library(nupack-bind STATIC ${CMAKE_CURRENT_SOURCE_DIR}/bind/Document.cc)
+target_link_libraries(nupack-bind PUBLIC nupack-bind-objects)
+target_include_directories(nupack-bind PUBLIC ${SOURCE_DIR})
 add_library(nupack::bind ALIAS nupack-bind)
-target_link_libraries(nupack-bind PRIVATE cxxflags)
-target_link_libraries(nupack-bind PUBLIC libnupack new_design librebind)
-target_include_directories(nupack-bind PRIVATE ${SOURCE_DIR})
-list(APPEND nupack_cxx_targets nupack-bind)
+nupack_cxx_target(nupack-bind)
 install(TARGETS nupack-bind DESTINATION ${CMAKE_INSTALL_LIBDIR})
 
 ################################################################################
@@ -145,7 +167,7 @@ install(TARGETS nupack-bind DESTINATION ${CMAKE_INSTALL_LIBDIR})
 set(design_lib_source SequenceAdapter.cc ThermoWrapper.cc Complex.cc Defect.cc
     Tube.cc Design.cc Designer.cc Decomposition.cc Split.cc
     Specification.cc Result.cc OutputResult.cc Granularity.cc DesignComponents.cc Models.cc
-    Objectives.cc Weights.cc Constraints.cc)
+    Objectives.cc Weights.cc Constraints.cc Proto.cc)
 prefix_transform(design_lib_source "source/design" ${design_lib_source})
 
 set(old_design_files constraint_handler.cc sequence_utils.cc)
@@ -159,15 +181,6 @@ target_link_libraries(new_design PUBLIC libnupack nupack-gecode)
 target_link_libraries(new_design PRIVATE cxxflags)
 set_target_properties(new_design PROPERTIES OUTPUT_NAME "nupack-design")
 install(TARGETS new_design DESTINATION ${CMAKE_INSTALL_LIBDIR} OPTIONAL)
-list(APPEND nupack_cxx_targets new_design)
-
-################################################################################
-
-if(NUPACK_PIC)
-    message("-- Compiling with position-independent code linkage")
-else()
-    message("-- Not compiling with position-independent code linkage")
-endif()
-set_target_properties(${nupack_cxx_targets} PROPERTIES POSITION_INDEPENDENT_CODE ${NUPACK_PIC})
+nupack_cxx_target(new_design)
 
 ################################################################################

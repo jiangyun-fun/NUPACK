@@ -6,25 +6,17 @@ import os, numpy, scipy.sparse, typing
 
 ################################################################################
 
-from . import info
-__version__ = info.version
-
-################################################################################
+from . import thermo, analysis, concentration
 
 from .model import Model, ParameterFile, Conditions, Ensemble, \
     structure_energy, loop_energy
 
-from .core import PairList, Local, Sequence, Base, Structure, JSON, Domain, \
-    RawStrand, RawComplex, TargetComplex, TargetStrand, PairsMatrix, struc_distance, \
-    seq_distance
+from .core import PairList, Local, Sequence, Base, Structure, JSON, Domain, Alphabet, \
+    TargetTube, TargetComplex, TargetStrand, PairMatrix, Strand, Complex, DomainList, \
+    seq_distance, struc_distance, SequenceList, ComplexSet, SetSpec, Tube, Domain as TargetDomain
 
-from . import thermo, analysis
-
-from .named import Strand, Complex, Result as AnalysisResult, tube_analysis, \
-    Tube, complex_analysis, complex_concentrations, ComplexSet, SetSpec
-
-from .analysis import ConcentrationSolver, ComplexResult, \
-    energy, structure_probability, ensemble_size, pfunc, mfe, pairs, subopt, sample
+from .analysis import ConcentrationSolver, ComplexResult, complex_analysis, tube_analysis, fraction_bases_unpaired, \
+    energy, structure_probability, ensemble_size, pfunc, mfe, pairs, subopt, sample, complex_concentrations
 
 from .design import TargetTube, complex_design, tube_design, \
     Match, Pattern, SSM, Library, Diversity, Similarity, Complementarity, \
@@ -32,8 +24,7 @@ from .design import TargetTube, complex_design, tube_design, \
     WriteToFileCheckpoint, StopCondition, des, defect, \
     Options as DesignOptions, Result as DesignResult
 
-from .constants import reverse_complement, random_sequence, as_sequences
-from . import concentration
+from .constants import reverse_complement, random_sequence
 
 ################################################################################
 
@@ -72,10 +63,14 @@ def render():
 ################################################################################
 
 rendered_document, config = render()
-config.parallelism = False
+
+core._Config.augment(config)
+config.threads = 0
 config.cache = 2.0
 
 constants.TypeIndex = rendered_document['TypeIndex']
 constants.set_default_parameters_path(os.path.join(os.path.dirname(__file__), 'parameters'))
+
+__version__ = constants.version
 
 ################################################################################

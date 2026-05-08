@@ -3,10 +3,13 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO boostorg/lexical_cast
-    REF boost-1.75.0
-    SHA512 6c1454cb9224dd5aba6d575fe266af3299433a1789253a4a15f4d8227fe82f7fd71e2754e9c83b4f70fb50293f5597b5e90c5b9eaee8f7d7b0d296d987236b02
+    REF boost-${VERSION}
+    SHA512 ff5ca9f69a8fea9354cccc652baa59477542e94b9b02bb7f7b5e65ec67a9374a97c67d2a87e78e0603382be88079b4a4697c647f8d218d5697fccf87c1e0290c
     HEAD_REF master
 )
 
-include(${CURRENT_INSTALLED_DIR}/share/boost-vcpkg-helpers/boost-modular-headers.cmake)
-boost_modular_headers(SOURCE_PATH ${SOURCE_PATH})
+set(FEATURE_OPTIONS "")
+boost_configure_and_install(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS ${FEATURE_OPTIONS}
+)

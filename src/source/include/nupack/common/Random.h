@@ -101,7 +101,7 @@ bool random_bool(RNG &&gen=StaticRNG) {
 
 /// Instead of making a shuffled vector, make a vector of shuffled iterators to the input one
 template <class V, class RNG=decltype(StaticRNG) &>
-auto shuffled_view(V const &v, std::size_t n=*inf, RNG &&rng=StaticRNG) {
+auto shuffled_view(V const &v, std::size_t n=inf<std::size_t>(), RNG &&rng=StaticRNG) {
     std::vector<const_iterator_of<V>> ret{iterators(v)};
     random_shuffle(ret, rng);
     if (n < len(ret)) ret.erase(begin_of(ret) + n, end_of(ret));
@@ -110,7 +110,7 @@ auto shuffled_view(V const &v, std::size_t n=*inf, RNG &&rng=StaticRNG) {
 }
 
 template <class V, class RNG=decltype(StaticRNG) &>
-auto shuffled(V const &v, std::size_t n=*inf, RNG &&rng=StaticRNG) {
+auto shuffled(V const &v, std::size_t n=inf<std::size_t>(), RNG &&rng=StaticRNG) {
     std::vector<value_type_of<V>> ret(begin_of(v), end_of(v));
     random_shuffle(ret, rng);
     if (n < len(ret)) ret.erase(begin_of(ret) + n, end_of(ret));

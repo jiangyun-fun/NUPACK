@@ -20,8 +20,10 @@ namespace nupack {
 NUPACK_UNARY_FUNCTOR(round,          std::round(t));
 NUPACK_UNARY_FUNCTOR(abs,            std::abs(t));
 NUPACK_UNARY_FUNCTOR(exp,            std::exp(t));
-NUPACK_UNARY_FUNCTOR(sqroot,         std::sqrt(t));
+NUPACK_UNARY_FUNCTOR(exp2,           std::exp2(t));
+NUPACK_UNARY_FUNCTOR(sqrt,           std::sqrt(t));
 NUPACK_UNARY_FUNCTOR(log,            std::log(t));
+NUPACK_UNARY_FUNCTOR(log2,           std::log2(t));
 NUPACK_UNARY_FUNCTOR(ceil,           std::ceil(t));
 NUPACK_UNARY_FUNCTOR(floor,          std::floor(t));
 NUPACK_UNARY_FUNCTOR(sign,           !std::signbit(t));
@@ -30,9 +32,7 @@ NUPACK_UNARY_FUNCTOR(is_negative,    std::signbit(t));
 NUPACK_UNARY_FUNCTOR(is_positive,    (t > static_cast<std::decay_t<decltype(t)>>(0)));
 NUPACK_UNARY_FUNCTOR(is_nan,         std::isnan(t));
 NUPACK_UNARY_FUNCTOR(is_finite,      std::isfinite(t));
-
-template <class T, class U>
-constexpr auto pow(T t, U u) -> decltype(std::pow(t, u)) {return std::pow(t, u);}
+NUPACK_BINARY_FUNCTOR(pow,           std::pow(t, u));
 
 /******************************************************************************************/
 
@@ -79,8 +79,8 @@ static constexpr auto cube = cube_t();
 
 /// solve quadratic formula with first coefficient=1, return both roots
 template <class T> auto quadratic_solve(T const b, T const c) {
-    auto r1 = (-b - sqroot(sq(b) - 4 * c)) / 2; // should be optimized away
-    auto r2 = (-b + sqroot(sq(b) - 4 * c)) / 2;
+    auto r1 = (-b - sqrt(sq(b) - 4 * c)) / 2; // should be optimized away
+    auto r2 = (-b + sqrt(sq(b) - 4 * c)) / 2;
     return std::make_pair(r1, r2);
 }
 
@@ -226,16 +226,8 @@ auto binary_exponent(T t) {int r; std::frexp(t, &r); return r;}
 
 /******************************************************************************************/
 
-template <class V, class T> V linspace(T n) {V ret(n); iota(ret, T(*zero), plus_one); return ret;}
+template <class V, class T> V linspace(T n) {V ret(n); iota(ret, T(), plus_one); return ret;}
 template <class V, class T> V linspace(T b, T e) {V ret(e - b); iota(ret, b, plus_one); return ret;}
-
-/******************************************************************************************/
-
-/// Return previous element or zero if there is none
-template <class V, class It, class F=Identity>
-auto prev_or_zero(V const &v, It it, F const &f=Identity()) -> decltype(f(it[0])) {
-    return it == begin_of(v) ? decltype(f(it[0]))(*zero) : f(it[-1]);
-}
 
 /******************************************************************************************/
 

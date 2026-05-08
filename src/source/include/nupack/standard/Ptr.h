@@ -27,7 +27,7 @@ bool less_ptr(T const &t1, T const &t2) {
 /******************************************************************************************/
 
 /// Divide memory usage of shared_ptr by number of use_count
-template <class T> struct memory::impl<T, void_if<is_shared_ptr<T>>> {
+template <class T> struct memory::impl<T, void_if<is_shared_ptr<T> && !is_same<element_type_of<T>, void const, void>>> {
     std::size_t operator()(T const &t) const {
         if (!t) return sizeof(T);
         else return sizeof(T) + memory::impl<element_type_of<T>>()(*t) / t.use_count();
@@ -35,7 +35,7 @@ template <class T> struct memory::impl<T, void_if<is_shared_ptr<T>>> {
     void erase(T &t) const {t.reset();}
 };
 
-template <class T> struct memory::impl<T, void_if<is_unique_ptr<T>>> {
+template <class T> struct memory::impl<T, void_if<is_unique_ptr<T> && !is_same<element_type_of<T>, void const, void>>> {
     std::size_t operator()(T const &t) const {
         if (!t) return sizeof(T);
         else return sizeof(T) + memory::impl<element_type_of<T>>()(*t);

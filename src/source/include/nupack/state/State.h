@@ -6,17 +6,30 @@ namespace nupack {
 
 /******************************************************************************************/
 
-template <class S, class Model>
-auto structure_energy(S &&sequences, PairList p, Model const &em, bool distinguishable=true) {
-    StaticState<> w(std::forward<S>(sequences), std::move(p));
-    w.check_structure(em.pairable);
+template <class Model>
+auto structure_energy(System s, PairList p, Model const &em, bool distinguishable=true, bool stack_energy=false, real molarity=0) {
+    StaticState<> w(std::move(s), std::move(p));
+    w.check_structure(em.pairing());
     auto out = w.calculate_energy(em);
-
-    if (!distinguishable) out += std::log(real(w.symmetry())) / em.beta;
+    if (molarity && w.n_strands() != w.n_complexes()) 
+        out += (w.n_strands() - w.n_complexes()) * log(water_molarity(em.temperature()) / molarity) / em.beta;
+    if (!distinguishable) 
+        out += log(real(w.symmetry())) / em.beta;
 
     return out;
 }
 
 /******************************************************************************************/
+
+template <class Model>
+auto minimum_stack_energy(System s, PairList p, Model const &em) {
+    StaticState<> w(std::move(s), std::move(p));
+    w.check_structure(em.pairing());
+
+    auto e = sum(w.loops, [&](auto const &o) {return em.minimum_stack_energy(o.sequences(), o.nick());});
+    e += (len(w.sys.strands()) - len(w.complexes)) * em.join_penalty();
+    return e;
+}
+
 
 }

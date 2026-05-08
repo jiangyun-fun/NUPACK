@@ -146,7 +146,7 @@ Object str_cast(Variable &&ref) {
 }
 
 Object bytes_cast(Variable &&ref) {
-    if (auto p = ref.request<BinaryView>()) return as_object(std::move(*p));
+    if (auto p = ref.request<BinaryData>()) return as_object(std::move(*p));
     if (auto p = ref.request<Binary>()) return as_object(std::move(*p));
     return {};
 }

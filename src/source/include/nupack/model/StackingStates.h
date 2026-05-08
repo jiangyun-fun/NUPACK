@@ -91,10 +91,10 @@ real mask_pf(V const & masks, S seqs, M const & m, bool circ, real left, real ri
             }
             if (length >= 3) {
                 auto left = [&]{
-                    return Rig::boltz(m.beta, m.dG(dangle5, back(seqs[i-1]), front(seqs[i]), front(seqs[i], 1)));
+                    return Rig::boltz(m.beta, m.dangle5(back(seqs[i-1]), front(seqs[i]), front(seqs[i], 1)));
                 };
                 auto right = [&]{
-                    return Rig::boltz(m.beta, m.dG(dangle3, back_index(seqs[i], 1), back(seqs[i]), front(seqs[i+1])));
+                    return Rig::boltz(m.beta, m.dangle3(back_index(seqs[i], 1), back(seqs[i]), front(seqs[i+1])));
                 };
 
                 if (!l && r) {
@@ -132,13 +132,13 @@ real exterior_loop_stack_sum(V seqs, M const & m) {
     auto first = seqs.front();
     if (len(first) > 2) {
         auto & second = seqs[1];
-        left = Rig::plus(Rig::one(), Rig::boltz(m.beta, m.dG(dangle3, back_index(first, 1), back(first), second[0])));
+        left = Rig::plus(Rig::one(), Rig::boltz(m.beta, m.dangle3(back_index(first, 1), back(first), second[0])));
     }
     // dangle states for 3' end of loop
     auto last = seqs.back();
     if (len(last) > 2) {
         auto & penultimate = back_index(seqs, 1);
-        right = Rig::plus(Rig::one(), Rig::boltz(m.beta, m.dG(dangle5, back(penultimate), last[0], last[1])));
+        right = Rig::plus(Rig::one(), Rig::boltz(m.beta, m.dangle5(back(penultimate), last[0], last[1])));
     }
 
     if (len(seqs) == 2) { // only dangles

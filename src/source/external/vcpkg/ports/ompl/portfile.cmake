@@ -1,40 +1,32 @@
 vcpkg_buildpath_length_warning(37)
 
-set(OMPL_VERSION 1.5.1)
-
-set(FEATURE_PATCHES)
-
-if("app" IN_LIST FEATURES)
-    vcpkg_download_distfile(ARCHIVE
-        URLS "https://github.com/ompl/omplapp/releases/download/1.5.1/omplapp-1.5.1-Source.tar.gz"
-        FILENAME "omplapp-${OMPL_VERSION}.tar.gz"
-        SHA512 83b1b09d6be776f7e15a748402f0c2f072459921de61a92731daf5171bd1f91a829fbeb6e10a489b92fba0297f6272e7bb6b8f07830c387bb29ccdbc7b3731f3
-    )
-    list(APPEND FEATURE_PATCHES fix_dependency.patch)
+# See https://github.com/ompl/ompl/blob/1.6.0/src/ompl/CMakeLists.txt#L52-L56
+if (VCPKG_TARGET_IS_WINDOWS AND NOT VCPKG_TARGET_IS_MINGW)
+    vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 else()
-    vcpkg_download_distfile(ARCHIVE
-        URLS "https://github.com/ompl/ompl/archive/1.5.1.tar.gz"
-        FILENAME "ompl-${OMPL_VERSION}.tar.gz"
-        SHA512 2f28d29f32f3bb03e67b29ce251e4786364847a25e3c4cf66d7663ed38dca4da71d4e03cf9ce647710d9524a3907c76c09795e77f041cb8822f695d28f5ca570
-    )
+    vcpkg_check_linkage(ONLY_DYNAMIC_LIBRARY)
 endif()
 
-vcpkg_extract_source_archive_ex(
+vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
-    ARCHIVE ${ARCHIVE}
-    REF ${OMPL_VERSION}
-    PATCHES ${FEATURE_PATCHES}
+    REPO ompl/ompl
+    REF "${VERSION}"
+    SHA512 d1024d7cc8e309a1df94a950be67eefae1e66abaccd6b6b8980939559aee3d73c05c838ab24c818b6b57ce6c4b3181fde7595d3d1dd36d6cd0c6d125338084ac
+    HEAD_REF main
+    PATCHES
+        0001_Export_targets.patch
+        0002_Fix_config.patch
+        0003_disable-pkgconfig.patch
+        0004_include_chrono.patch # https://github.com/ompl/ompl/pull/1201
 )
+file(GLOB find_modules "${SOURCE_PATH}/CMakeModules/Find*.cmake")
+file(REMOVE_RECURSE "${SOURCE_PATH}/src/external" ${find_modules})
+# The ompl/omplapp ports don't support python features.
+file(COPY "${CURRENT_PORT_DIR}/FindPython.cmake" DESTINATION "${SOURCE_PATH}/CMakeModules")
 
-# Based on selected features different files get downloaded, so use the following command instead of patch.
-file(READ ${SOURCE_PATH}/CMakeLists.txt _contents)
-string(REPLACE "find_package(Eigen3 REQUIRED)" "find_package(Eigen3 REQUIRED CONFIG)" _contents "${_contents}")
-string(REPLACE "find_package(ccd REQUIRED)" "find_package(ccd REQUIRED CONFIG)" _contents "${_contents}")
-file(WRITE ${SOURCE_PATH}/CMakeLists.txt "${_contents}")
-
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+set(ENV{PYTHON_EXEC} "PYTHON_EXEC-NOTFOUND")
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
     DISABLE_PARALLEL_CONFIGURE
     OPTIONS
         -DOMPL_VERSIONED_INSTALL=OFF
@@ -43,36 +35,30 @@ vcpkg_configure_cmake(
         -DOMPL_BUILD_TESTS=OFF
         -DOMPL_BUILD_PYBINDINGS=OFF
         -DOMPL_BUILD_PYTESTS=OFF
+        -DR_EXEC=R_EXEC-NOTFOUND
+        -DCMAKE_POLICY_DEFAULT_CMP0167=OLD
+        -DCMAKE_DISABLE_FIND_PACKAGE_castxml=ON
+        -DCMAKE_DISABLE_FIND_PACKAGE_Doxygen=ON
+        -DCMAKE_DISABLE_FIND_PACKAGE_flann=ON
+        -DCMAKE_DISABLE_FIND_PACKAGE_MORSE=ON
+        -DCMAKE_DISABLE_FIND_PACKAGE_ODE=ON
+        -DCMAKE_DISABLE_FIND_PACKAGE_spot=ON
+        -DCMAKE_DISABLE_FIND_PACKAGE_Triangle=ON
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
+vcpkg_fixup_pkgconfig()
+vcpkg_cmake_config_fixup(CONFIG_PATH share/ompl/cmake)
 
-vcpkg_fixup_cmake_targets(CONFIG_PATH share/ompl/cmake)
-
-# Remove debug distribution and other, move ompl_benchmark to tools/ dir
 file(REMOVE_RECURSE
-    ${CURRENT_PACKAGES_DIR}/debug/include
-    ${CURRENT_PACKAGES_DIR}/debug/share
-    ${CURRENT_PACKAGES_DIR}/share/man
-    ${CURRENT_PACKAGES_DIR}/share/ompl/demos
-    ${CURRENT_PACKAGES_DIR}/share/ompl/ompl.conf
-    ${CURRENT_PACKAGES_DIR}/share/ompl/plannerarena
+    "${CURRENT_PACKAGES_DIR}/debug/include"
+    "${CURRENT_PACKAGES_DIR}/debug/share"
+    "${CURRENT_PACKAGES_DIR}/share/man"
+    "${CURRENT_PACKAGES_DIR}/share/ompl/demos"
 )
-if ("app" IN_LIST FEATURES)
-    file(MAKE_DIRECTORY ${CURRENT_PACKAGES_DIR}/tools/ompl)
-    file(RENAME ${CURRENT_PACKAGES_DIR}/bin/ompl_benchmark.exe ${CURRENT_PACKAGES_DIR}/tools/ompl/ompl_benchmark.exe)
-    file(REMOVE_RECURSE
-        ${CURRENT_PACKAGES_DIR}/bin
-        ${CURRENT_PACKAGES_DIR}/debug/bin
-        ${CURRENT_PACKAGES_DIR}/include/omplapp/CMakeFiles
-        ${CURRENT_PACKAGES_DIR}/share/ompl/resources
-        ${CURRENT_PACKAGES_DIR}/share/ompl/webapp
-    )
-endif()
 
-if(VCPKG_LIBRARY_LINKAGE STREQUAL "static")
-    file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/bin" "${CURRENT_PACKAGES_DIR}/debug/bin")
-endif()
+# Used by port omplapp
+file(GLOB cmake_modules "${SOURCE_PATH}/CMakeModules/*.cmake")
+file(COPY ${cmake_modules} DESTINATION "${CURRENT_PACKAGES_DIR}/share/ompl/CMakeModules")
 
-# Handle copyright
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

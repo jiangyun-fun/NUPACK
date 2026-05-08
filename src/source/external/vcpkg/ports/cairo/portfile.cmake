@@ -1,69 +1,83 @@
-set(CAIRO_VERSION 1.16.0)
+set(EXTRA_PATCHES "")
+if(VCPKG_TARGET_IS_WINDOWS AND NOT VCPKG_TARGET_IS_MINGW)
+    list(APPEND EXTRA_PATCHES fix_clang-cl_build.patch)
+endif()
 
-vcpkg_download_distfile(ARCHIVE
-    URLS "https://www.cairographics.org/releases/cairo-${CAIRO_VERSION}.tar.xz"
-    FILENAME "cairo-${CAIRO_VERSION}.tar.xz"
-    SHA512 9eb27c4cf01c0b8b56f2e15e651f6d4e52c99d0005875546405b64f1132aed12fbf84727273f493d84056a13105e065009d89e94a8bfaf2be2649e232b82377f
-)
-vcpkg_extract_source_archive_ex(
+list(APPEND EXTRA_PATCHES dw-extra.patch)
+
+vcpkg_from_gitlab(
     OUT_SOURCE_PATH SOURCE_PATH
-    ARCHIVE ${ARCHIVE}
-    REF ${CAIRO_VERSION}
+    GITLAB_URL https://gitlab.freedesktop.org
+    REPO cairo/cairo
+    REF "${VERSION}"
+    SHA512 5731eaa48857561aad023214ebb7be70344579a4bc75d00c46f8c622b4d34be7f79ab02e2cd54a419086490a3bf31aafa2418d873833b475b9824e3f2f5b17b6
     PATCHES
-        export-only-in-shared-build.patch
-        0001_fix_osx_defined.patch
+        cairo_add_lzo_feature_option.patch
+        msvc-convenience.diff
+        ${EXTRA_PATCHES}
 )
 
-file(COPY ${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt DESTINATION ${SOURCE_PATH}/src)
+if("fontconfig" IN_LIST FEATURES)
+    list(APPEND OPTIONS -Dfontconfig=enabled)
+else()
+    list(APPEND OPTIONS -Dfontconfig=disabled)
+endif()
 
 if("freetype" IN_LIST FEATURES)
-    set(CAIRO_HAS_FT_FONT TRUE)
-    set(CAIRO_HAS_FC_FONT TRUE)
+    list(APPEND OPTIONS -Dfreetype=enabled)
+else()
+    list(APPEND OPTIONS -Dfreetype=disabled)
 endif()
-configure_file("${CMAKE_CURRENT_LIST_DIR}/cairo-features.h.in" "${SOURCE_PATH}/src/cairo-features.h")
 
 if ("x11" IN_LIST FEATURES)
-    if (VCPKG_TARGET_IS_WINDOWS)
-        message(FATAL_ERROR "Feature x11 only support UNIX.")
-    endif()
-    message(WARNING "You will need to install Xorg dependencies to use feature x11:\napt install libx11-dev libxft-dev\n")
+    message(WARNING "You will need to install Xorg dependencies to use feature x11:\nsudo apt install libx11-dev libxft-dev libxext-dev\n")
+    list(APPEND OPTIONS -Dxlib=enabled)
+else()
+    list(APPEND OPTIONS -Dxlib=disabled)
 endif()
+list(APPEND OPTIONS -Dxcb=disabled)
+list(APPEND OPTIONS -Dxlib-xcb=disabled)
 
 if("gobject" IN_LIST FEATURES)
-    if(VCPKG_TARGET_IS_WINDOWS AND VCPKG_LIBRARY_LINKAGE STREQUAL "static")
-        message(FATAL_ERROR "Feature gobject currently only supports dynamic build.")
-    endif()
+    list(APPEND OPTIONS -Dglib=enabled)
+else()
+    list(APPEND OPTIONS -Dglib=disabled)
 endif()
 
-vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
-    x11 WITH_X11
-    gobject WITH_GOBJECT
-    freetype WITH_FREETYPE
+if("lzo" IN_LIST FEATURES)
+    list(APPEND OPTIONS -Dlzo=enabled)
+else()
+    list(APPEND OPTIONS -Dlzo=disabled)
+endif()
+
+if(VCPKG_TARGET_IS_WINDOWS AND NOT VCPKG_TARGET_IS_MINGW)
+    set(ENV{CPP} "cl_cpp_wrapper")
+endif()
+
+vcpkg_configure_meson(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        ${OPTIONS}
+        -Dtests=disabled
+        -Dzlib=enabled
+        -Dpng=enabled
+        -Dspectre=auto
+        -Dgtk2-utils=disabled
+        -Dsymbol-lookup=disabled
 )
-
-vcpkg_configure_cmake(
-    PREFER_NINJA
-    SOURCE_PATH ${SOURCE_PATH}/src
-    OPTIONS ${FEATURE_OPTIONS}
-)
-
-vcpkg_install_cmake()
-
-vcpkg_fixup_cmake_targets(CONFIG_PATH share/unofficial-cairo TARGET_PATH share/unofficial-cairo)
+vcpkg_install_meson()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 
-foreach(FILE "${CURRENT_PACKAGES_DIR}/include/cairo.h" "${CURRENT_PACKAGES_DIR}/include/cairo/cairo.h")
-    file(READ ${FILE} CAIRO_H)
-    if(VCPKG_LIBRARY_LINKAGE STREQUAL "static")
-        string(REPLACE "defined (CAIRO_WIN32_STATIC_BUILD)" "1" CAIRO_H "${CAIRO_H}")
-    else()
-        string(REPLACE "defined (CAIRO_WIN32_STATIC_BUILD)" "0" CAIRO_H "${CAIRO_H}")
-    endif()
-    file(WRITE ${FILE} "${CAIRO_H}")
-endforeach()
-
-# Handle copyright
-file(INSTALL ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+if(VCPKG_LIBRARY_LINKAGE STREQUAL "static")
+    vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/include/cairo/cairo.h" "defined(CAIRO_WIN32_STATIC_BUILD)" "1")
+endif()
 
 vcpkg_copy_pdbs()
+vcpkg_fixup_pkgconfig()
+
+if(VCPKG_LIBRARY_LINKAGE STREQUAL "static" OR NOT VCPKG_TARGET_IS_WINDOWS)
+    file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/bin" "${CURRENT_PACKAGES_DIR}/debug/bin")
+endif()
+
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/COPYING" "${SOURCE_PATH}/COPYING-LGPL-2.1" "${SOURCE_PATH}/COPYING-MPL-1.1")

@@ -1,7 +1,9 @@
 #include <nupack/design/Tube.h>
+#include <nupack/types/Matrix.h>
 #include <nupack/concentration/Equilibrate.h>
+#include <nupack/reflect/SerializeMatrix.h>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 vec<StrandView> Tube::strand_types(vec<Complex> const &cs) const {
     auto comps = complexes(cs);
@@ -66,8 +68,8 @@ void remove_added_strands(uint num_strands, real_col &x) {
  * same order as targets
  */
 vec<real> Tube::concentrations(vec<real> const &log_pfuncs, EnsemblePartition const &part) const {
-    auto water_conc = water_molarity(model.conditions.temperature);
-
+    if (!part.mask.empty()) for (auto const &t : targets)
+        if (t.target_conc > 0) NUPACK_ASSERT(part.mask.at(t.complex_index));
     real_col dG, x0; real_mat A;
     // whether to use deflated mass constraints or not
     bool estimate = len(part) > 0 && any_of(targets, [&](auto const &t) {return !part.active(t.complex_index);});
@@ -76,11 +78,11 @@ vec<real> Tube::concentrations(vec<real> const &log_pfuncs, EnsemblePartition co
     } else {
         vec<real> vec_dG(indirect_view(targets, [&](auto const &t) {return -at(log_pfuncs, t.complex_index);}));
         dG = real_col(vec_dG);
-        x0 = real_col(vmap<vec<real>>(targets, [&](auto const &c) {return c.target_conc / water_conc;}));
+        x0 = vmap<real_col>(targets, [&](auto const &c) {return c.target_conc / water_conc;});
         A = stoichiometry;
     }
-
-    real_col x = newdesign::concentrations(A, x0, dG);
+    NUPACK_ASSERT(!dG.empty(), part, log_pfuncs, estimate);
+    real_col x = design::solve_concentrations(A, x0, dG);
 
     if (estimate) x = reinflate(x, part);
     return vmap<vec<real>>(x, [&](auto const &c) {return c * water_conc;});
@@ -126,10 +128,7 @@ vec<real> Tube::fractions(vec<real> const &log_pfuncs, EnsemblePartition const &
  * @return std::tuple<real_mat, real_col, real_col>
  */
 std::tuple<real_mat, real_col, real_col> Tube::deflate(vec<real> const &log_pfuncs, EnsemblePartition const &part) const {
-    auto water_conc = water_molarity(model.conditions.temperature);
-
-    real_col x0 = real_col(vmap<vec<real>>(targets, [&](auto const &c) {return c.target_conc / water_conc;}));
-    auto A = stoichiometry;
+    real_col const x0 = real_col(vmap<vec<real>>(targets, [&](auto const &c) {return c.target_conc / water_conc;}));
 
     vec<value_type_of<arma::uvec>> active;
     vec<uint> active_complex_inds;
@@ -137,14 +136,14 @@ std::tuple<real_mat, real_col, real_col> Tube::deflate(vec<real> const &log_pfun
         if (part.active(t.complex_index)) {
             active_complex_inds.emplace_back(t.complex_index);
             active.emplace_back(i);
-        }
+        } else NUPACK_ASSERT(t.target_conc == 0);
     });
     arma::uvec slice(active);
 
     vec<real> vec_dG(indirect_view(active_complex_inds, [&](auto i) {return -at(log_pfuncs, i);}));
     real_col ret_dG = real_col(vec_dG);
 
-    real_mat ret_A = A.rows(slice);
+    real_mat ret_A = stoichiometry.rows(slice);
     real_col ret_x0 = x0(slice);
     ret_x0 *= (1 - part.deflate);
 
@@ -299,13 +298,12 @@ Defect Tube::normalized_defect(vec<real> const &log_pfuncs, vec<Defect> const &c
 
 
 vec<real> Tube::concentrations(vec<real> const &log_pfuncs) const {
+    NUPACK_ASSERT(!targets.empty(), "Tube should not be empty", *this);
     real_mat A = stoichiometry;
-
-    auto water_conc = water_molarity(model.conditions.temperature);
     real_col x0(vmap<vec<real>>(targets, [&](auto const &c) { return c.target_conc / water_conc; }));
     real_col dG(vmap<vec<real>>(targets, [&](auto const &c) { return -at(log_pfuncs, c.complex_index); }));
-
-    real_col x = newdesign::concentrations(A, x0, dG);
+    NUPACK_ASSERT(!x0.empty() && !dG.empty());
+    real_col x = design::solve_concentrations(A, x0, dG);
 
     x *= water_conc;
     return {begin_of(x), end_of(x)};
@@ -321,24 +319,35 @@ vec<real> Tube::concentrations(vec<real> const &log_pfuncs) const {
  * @param dG the unscaled free energy (-log(pfunc))
  * @return real_col the mole fractions of each of the complexes
  */
-real_col concentrations(real_mat const &A, real_col const &x0, real_col const &dG) {
+real_col solve_concentrations(real_mat const &A, real_col const &x0, real_col const &dG) {
+    NUPACK_ASSERT(!x0.empty() && !dG.empty(), A, x0, dG);
+    NUPACK_REQUIRE(la::accu(x0), >, 0, "Total complex concentration must be positive");
+    if (len(x0) == 1) return x0;
     real_col logq = -dG;
-    concentration::Options options;
-    options.method = concentration::Method::cd;
+    concentration::Options ops;
+    ops.max_iters = 1e6;
+    ops.tolerance = 1e-7;
+    ops.method = concentration::Method::cd;
+    ops.orthogonalize = true;
 
     concentration::Output<real> sol;
     std::string exception;
+    real_col const b = A.t() * x0;
+    NUPACK_ASSERT(b.min() > 0, "Strand concentrations must all be positive", A, b, x0);
 
-    try {
-        sol = concentration::equilibrate(A, la::log(A.t() * x0), logq, options);
-    } catch (std::exception const &e) {
-        exception = e.what();
+    for (auto i : range(2)) {
+        try {
+            sol = concentration::equilibrate(A, la::log(b), logq, ops);
+        } catch (std::exception const &e) {
+            exception = e.what();
+        }
+        if (exception.empty() && (sol.converged || sol.error <= 1e-3)) return std::move(sol.solution);
+        ops.method = concentration::Method::dogleg;
     }
 
-    if (exception.empty() && (sol.converged || sol.error <= 1e-3)) return std::move(sol.solution);
-
-    json info{{"A", A}, {"x0", x0}, {"logq", logq},
-              {"options", options}, {"solution", sol}, {"exception", exception}};
+    json info{{"A", A}, {"x0", x0}, {"logq", logq}, {"error", sol.error}, {"converged", sol.converged},
+              {"solution", sol.solution}, {"s0", b}, {"s1", la::Col<real>(A.t() * sol.solution)},
+              {"dual", sol.dual_solution}, {"exception", exception}, {"shape", std::make_pair(x0.n_rows, A.n_cols)}};
     NUPACK_ERROR("nupack::design: equilibrium convergence failure: " + info.dump());
 }
 
@@ -366,4 +375,4 @@ void Tube::store_complex_indices(vec<Complex> const &cs) {
     for (auto &t : targets) t.indices = at(cs, t.complex_index).to_indices();
 }
 
-}}
+}

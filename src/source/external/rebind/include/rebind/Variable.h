@@ -133,7 +133,12 @@ public:
     }
 
     ~Variable() {
-        if (auto p = handle()) act(ActionType::destroy, p, nullptr);
+        if (auto p = handle()) {
+            DUMP("Variable::~Variable() deallocate ", qualifier(), " from variable ", idx);
+            act(ActionType::destroy, p, nullptr);
+        } else {
+            DUMP("Variable::~Variable() not deleting ", qualifier(), " from variable ", idx);
+        }
     }
 
     /**************************************************************************/
@@ -184,8 +189,10 @@ public:
         if constexpr(std::is_same_v<T, Variable>) return *this;
 
         std::optional<T> out;
-        if (auto p = target<T const &>()) out.emplace(*p);
-        else {
+	if constexpr(std::is_copy_constructible_v<T>) {
+            if (auto p = target<T const &>()) out.emplace(*p);
+        } 
+	if (!out) {
             auto v = request_variable(msg, typeid(T));
             if (auto p = std::move(v).target<T &&>()) {msg.source.clear(); out.emplace(std::move(*p));}
             else if ((out = Request<T>()(*this, msg))) msg.source.clear();
@@ -202,7 +209,8 @@ public:
 
     template <class T>
     T cast(Dispatch &msg, Type<T> t={}) const {
-        if (auto p = request(msg, t)) return static_cast<T>(*p);
+        if (auto p = request(msg, t))
+            if constexpr(std::is_constructible_v<T, decltype(*p)>) return static_cast<T>(*p);
         throw std::move(msg).exception();
     }
 
@@ -308,13 +316,16 @@ struct Action {
 
     static void apply(ActionType a, void *p, VariableData *v) {
         if (a == ActionType::destroy) { // Delete the object (known to be non-reference)
+            DUMP("delete ", typeid(T).name());
             if constexpr(UseStack<T>::value) static_cast<T *>(p)->~T();
             else delete static_cast<T *>(p);
 
         } else if (a == ActionType::copy) { // Copy-Construct the object
             DUMP(v->stack, UseStack<T>::value);
-            if constexpr(UseStack<T>::value) ::new(static_cast<void *>(&v->buff)) T{*static_cast<T const *>(p)};
-            else reinterpret_cast<void *&>(v->buff) = ::new T{*static_cast<T const *>(p)};
+            if constexpr(std::is_copy_constructible_v<T>) {
+                if constexpr(UseStack<T>::value) ::new(static_cast<void *>(&v->buff)) T{*static_cast<T const *>(p)};
+                else reinterpret_cast<void *&>(v->buff) = ::new T{*static_cast<T const *>(p)};
+            } else throw std::invalid_argument("not copyable");
 
         } else if (a == ActionType::move) { // Move-Construct the object (known to be on stack)
             DUMP(v->stack, UseStack<T>::value);
@@ -326,7 +337,7 @@ struct Action {
 
         } else if (a == ActionType::assign) { // Assign from another variable
             // DUMP("assign", v->idx.name(), typeid(T).name(), v->qual);
-            if constexpr(std::is_move_assignable_v<T>) {
+            if constexpr(!std::is_abstract_v<T> &&  std::is_move_assignable_v<T>) {
                 if (auto r = reinterpret_cast<Variable &&>(*v).request<T>()) {
                     // DUMP("got the assignable", v->idx.name(), typeid(T).name(), v->qual, typeid(T).name());
                     *static_cast<T *>(p) = std::move(*r);

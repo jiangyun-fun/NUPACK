@@ -1,28 +1,22 @@
-vcpkg_fail_port_install(ON_TARGET "uwp")
-
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO trailofbits/uthenticode
-    REF v1.0.4
-    SHA512 82d5ff61071adefec886a140d253b733cb2318ccf34e831087973b05f7e274b207031e606303f65269a5ed1b45c3c599d79e217cf6229d60c8cc2396e842f32e
+    REF "v${VERSION}"
+    SHA512 447c1edd2fcd7ba6e960ef5caf32f2b0b9b8bd6b83e5ec02313ff6ae2063bc37a4c250cfdcd57d0717ba93f783c4c8390280edd54a2f63f53c4185faeab6610a
     HEAD_REF master
+    PATCHES
+        openssl.patch
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
 
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/uthenticode TARGET_PATH share/uthenticode)
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/uthenticode)
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/share)
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 
-file(
-    INSTALL
-    ${SOURCE_PATH}/LICENSE
-    DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT}
-    RENAME copyright
-)
+file(INSTALL "${SOURCE_PATH}/LICENSE" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)

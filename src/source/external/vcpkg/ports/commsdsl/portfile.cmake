@@ -1,30 +1,37 @@
-vcpkg_fail_port_install(ON_TARGET "uwp")
-
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO commschamp/commsdsl
-    REF v3.6
-    SHA512 80fab2e567191a468a079dd9964a651293d8e7996141a973e77d4bdfaa96bfc346156f50ce484be1dc2b3d9e661cccce0e712c70876f7b322bc459f81a328496
+    REF "v${VERSION}"
+    SHA512 f782f624016d8dd45280a647b056430eed246ee1d1ab6ff9c55870bb7ed7111d4d4d02d14c59aa3364625cdb804e4af1965b8b3834d5f4a2865d062a1ff2b75e
     HEAD_REF master
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
-        -DCOMMSDSL_NO_COMMS_CHAMPION=ON
-        -DCOMMSDSL_NO_TESTS=ON
-        -DCOMMSDSL_NO_WARN_AS_ERR=ON # remove on next version or on next version of boost
+        -DCOMMSDSL_INSTALL_APPS=ON
+        -DCOMMSDSL_INSTALL_LIBRARY=ON
+        -DCOMMSDSL_INSTALL_LIBRARY_HEADERS=ON
+        -DCOMMSDSL_BUILD_UNIT_TESTS=OFF
+        -DCOMMSDSL_WARN_AS_ERR=OFF
+        -DCOMMSDSL_WIN_ALLOW_LIBXML_BUILD=OFF
+        -DBUILD_TESTING=OFF
 )
-vcpkg_install_cmake()
+vcpkg_cmake_install()
 
 vcpkg_copy_tools(
     TOOL_NAMES commsdsl2comms
-    SEARCH_DIR ${CURRENT_PACKAGES_DIR}/bin
     AUTO_CLEAN
 )
 
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/LibCommsdsl/cmake TARGET_PATH share/LibCommsdsl)
+vcpkg_cmake_config_fixup(PACKAGE_NAME LibCommsdsl CONFIG_PATH lib/LibCommsdsl/cmake)
+
+vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/share/LibCommsdsl/LibCommsdslConfig.cmake"
+"if (TARGET cc::commsdsl)"
+[[include(CMakeFindDependencyMacro)
+find_dependency(LibXml2)
+if (TARGET cc::commsdsl)]])
+
 # after fixing the following dirs are empty
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/lib/LibCommsdsl")
@@ -34,4 +41,4 @@ if(VCPKG_LIBRARY_LINKAGE STREQUAL "static")
     file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/bin" "${CURRENT_PACKAGES_DIR}/debug/bin")
 endif()
 # Handle copyright
-file(INSTALL ${SOURCE_PATH}/LICENSE.txt DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE.txt")

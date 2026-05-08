@@ -2,12 +2,13 @@
 #include "SequenceAdapter.h"
 #include "TypeImports.h"
 #include "../types/Structure.h"
+#include "../math/Sparse.h"
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 using SplitPoint = std::pair<uint, uint>;
 
-ProbabilityMatrix sparsify(Tensor<real, 2> const &in, real f_sparse);
+ProbabilityMatrix sparsify(PairMatrix<real> const &in);
 
 struct ProbabilitySplit {
     uint first;
@@ -52,4 +53,4 @@ vec<SplitPoint> minimal_splits(ProbabilityMatrix const &probs, real f_split, uin
 std::pair<Structure, Structure> split(SplitPoint const &sp, Structure const &s);
 std::pair<vec<StrandView>, vec<StrandView>> split(SplitPoint const &sp, vec<StrandView> const &seq);
 std::pair<vec<SplitPoint>, vec<SplitPoint>> split(SplitPoint const &sp, vec<SplitPoint> const &pairs);
-}}
+}

@@ -1,12 +1,24 @@
 #pragma once
 #include <rebind/Document.h>
-#include <armadillo>
 #include <map>
 #include <vector>
 #include <variant>
 #include <optional>
 #include <nupack/reflect/Serialize.h>
 #include <nupack/types/Matrix.h>
+#include <nupack/algorithms/Traits.h>
+#include <nupack/standard/Vec.h>
+
+#include <boost/preprocessor/variadic/to_seq.hpp>
+#include <boost/preprocessor/seq/for_each_i.hpp>
+#include <boost/preprocessor/stringize.hpp>
+
+/******************************************************************************************/
+
+#define NUPACK_PUBLIC_IMPL(r, t, i, elem) doc.method(t, "." BOOST_PP_STRINGIZE(elem), &decltype(*t)::elem);
+#define NUPACK_PUBLIC(t, ...) BOOST_PP_SEQ_FOR_EACH_I(NUPACK_PUBLIC_IMPL, t, BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__))
+
+/******************************************************************************************/
 
 namespace rebind {
 
@@ -84,6 +96,9 @@ struct MapRenderer {
 template <class T, class C, class A>
 struct Renderer<std::map<T, C, A>> : MapRenderer<std::map<T, C, A>> {};
 
+template <class ...Ts>
+struct Renderer<std::unordered_map<Ts...>> : MapRenderer<std::unordered_map<Ts...>> {};
+
 /******************************************************************************/
 
 template <class R, class ...Ts>
@@ -94,7 +109,7 @@ struct Renderer<std::function<R(Ts...)>> {
         (doc.render<unqualified<Ts>>(), ...);
         doc.type(typeid(F), "std.Function");
         doc.method(typeid(F), "()", &F::operator());
-        doc.method(typeid(F), "bool", &F::operator bool);
+        doc.method(typeid(F), "bool", [](F const &f) {return bool(f);});
     }
 };
 
@@ -107,6 +122,7 @@ struct Renderer<std::optional<T>> {
         doc.type(t, "std.Optional");
         doc.method(t, "bool", [](std::optional<T> const &t) {return bool(t);});
         doc.method(t, "value", [](std::optional<T> const &t) {return t.value();});
+        doc.method(t, "take", [](std::optional<T> &t) {return std::move(t.value());});
     }
 };
 
@@ -115,6 +131,7 @@ struct Renderer<std::optional<T>> {
 template <class ...Ts>
 struct Renderer<std::variant<Ts...>> {
     void operator()(Document &doc) const {
+        (doc.render<Ts>(), ...);
         TypeIndex const t{typeid(std::variant<Ts...>)};
         doc.type(t, "std.Variant");
         doc.method(t, "get", [](std::variant<Ts...> const &v) {
@@ -125,8 +142,10 @@ struct Renderer<std::variant<Ts...>> {
 
 /******************************************************************************/
 
+NUPACK_DETECT(has_base_type, typename T::base_type);
+
 template <class T>
-struct ImplicitConversions<T, std::void_t<typename T::base_type>> {
+struct ImplicitConversions<T, std::enable_if_t<traits::has_base_type<T> && nupack::is_nupack<T> && !nupack::is_small_vec<T>>> {
     using Base = typename T::base_type;
     using types = decltype(concat(Pack<Base>(), typename ImplicitConversions<Base>::types()));
 };
@@ -163,8 +182,9 @@ static constexpr bool is_arma_dense = std::is_same_v<A, std::decay_t<A>> && (arm
 template <class A>
 struct Response<A, Value, std::enable_if_t<(is_arma_dense<A>)>> {
     bool operator()(Variable &out, TypeIndex t, A const &a) const {
-        if (t.equals<ArrayView>())
+        if (t.equals<ArrayView>()) {
             return out.emplace(Type<ArrayView>(), a.memptr(), ArrayLayout{nupack::la::shape(a), nupack::la::strides(&a)}), true;
+        }
         return false;
     }
 };
@@ -261,22 +281,22 @@ struct Response<boost::container::small_vector<T, N, A>> : VectorResponse<boost:
 
 template <class V>
 struct VectorRenderer {
-    void operator()(Document &doc) const {
+    void operator()(Document &doc, bool name=true) const {
         doc.render<typename V::value_type>();
         if constexpr(std::is_same_v<typename V::value_type, char>) {
-            doc.type(typeid(V), "std.String");
+            if (name) doc.type(typeid(V), "std.String");
             if constexpr(!std::is_same_v<typename V::iterator, typename V::const_iterator>) {
                 doc.method(typeid(V), "append", [](V &v, typename V::value_type o) {v.push_back(std::move(o));});
             }
         } else {
-            doc.type(typeid(V), "std.Vector");
+            if (name) doc.type(typeid(V), "std.Vector");
             doc.method(typeid(V), "append", [](V &v, typename V::value_type o) {v.emplace_back(std::move(o));});
+            doc.method(typeid(V), "clear", [](V &v) {v.clear();});
         }
         doc.method(typeid(V), "[]", [](V &v, std::size_t i) -> decltype(v.at(i)) {return v.at(i);});
-        doc.method(typeid(V), "__len__", [](V const &v) {
-            if (rebind::Debug) BEEP(v.size());
-            return v.size();});
+        doc.method(typeid(V), "__len__", [](V const &v) {return v.size();});
         doc.method(typeid(V), "value_type", [](V const &) {return type_index<typename V::value_type>();});
+        doc.method(typeid(V), "new", [](V v) {return v;});
     }
 };
 
@@ -315,7 +335,7 @@ using rebind::Type;
 template <class T>
 void render_json(Document &doc, Type<T> t) {
     doc.method(t, "to_json", [](T const &x) {return json(x);});
-    doc.method(t, "from_json", [](json const &s) {T t; s.get_to(t); return t;});
+    doc.method(t, "new_from_json", [](json const &s) {T t; s.get_to(t); return t;});
 }
 
 /******************************************************************************/
@@ -349,7 +369,7 @@ void render_comparisons(Document &doc, Type<T> t) {
 
 template <class T>
 void render_hash(Document &doc, Type<T> t) {
-    doc.method(t, "__hash__", [](T const &t) {return std::hash<T>()(t);});
+    doc.method(t, "__hash__", [](T const &t) {return hash<T>()(t);});
 }
 
 /******************************************************************************/
@@ -392,39 +412,39 @@ Dumpable<T> dumpable(Type<T> t={}) {return {};}
 
 /**************************************************************************************/
 
-template <class C>
-rebind::Dictionary to_dictionary(C c) {
-    rebind::Dictionary out;
-    out.reserve(tuple_size<decltype(names_of(c))>);
-    for_each_zip(names_of(c), members_of(c), [&](auto c, auto &m) {
-        out.emplace_back(std::string_view(c), std::move(m));
-    });
-    std::sort(out.begin(), out.end(),
-        [](auto const &i, auto const &j) {return i.first < j.first;});
-    return out;
-}
+// template <class C>
+// rebind::Dictionary to_dictionary(C c) {
+//     rebind::Dictionary out;
+//     out.reserve(tuple_size<decltype(names_of(c))>);
+//     for_each_zip(names_of(c), members_of(c), [&](auto c, auto &m) {
+//         out.emplace_back(std::string_view(c), std::move(m));
+//     });
+//     std::sort(out.begin(), out.end(),
+//         [](auto const &i, auto const &j) {return i.first < j.first;});
+//     return out;
+// }
 
-template <class C>
-bool from_dictionary(rebind::Dictionary v, C &c, rebind::Dispatch &msg) {
-    bool ok = true;
-    for_each_zip(names_of(c), members_of(c), [&](std::string_view c, auto &m) {
-        if (!ok) return;
-        auto it = std::lower_bound(v.begin(), v.end(), c,
-            [&](auto const &p, auto const &s) {return p.first < s;});
-        if (it == v.end() || it->first != c) ok = false;
-        if (auto v = it->second.template request<std::decay_t<decltype(m)>>()) m = std::move(*v);
-    });
-    return ok;
-}
+// template <class C>
+// bool from_dictionary(rebind::Dictionary v, C &c, rebind::Dispatch &msg) {
+//     bool ok = true;
+//     for_each_zip(names_of(c), members_of(c), [&](std::string_view c, auto &m) {
+//         if (!ok) return;
+//         auto it = std::lower_bound(v.begin(), v.end(), c,
+//             [&](auto const &p, auto const &s) {return p.first < s;});
+//         if (it == v.end() || it->first != c) ok = false;
+//         if (auto v = it->second.template request<std::decay_t<decltype(m)>>()) m = std::move(*v);
+//     });
+//     return ok;
+// }
 
 /**************************************************************************************/
 
-template <class C>
-std::optional<C> from_dictionary(rebind::Dictionary v, rebind::Dispatch &msg) {
-    C c;
-    if (from_dictionary(std::move(v), c, msg)) return c;
-    return msg.error("member not found");
-}
+// template <class C>
+// std::optional<C> from_dictionary(rebind::Dictionary v, rebind::Dispatch &msg) {
+//     C c;
+//     if (from_dictionary(std::move(v), c, msg)) return c;
+//     return msg.error("member not found");
+// }
 
 /**************************************************************************************/
 
@@ -432,6 +452,5 @@ std::optional<C> from_dictionary(rebind::Dictionary v, rebind::Dispatch &msg) {
 
 #include "Core.h"
 #include "Design.h"
-#include "Math.h"
 #include "Model.h"
 #include "Thermo.h"

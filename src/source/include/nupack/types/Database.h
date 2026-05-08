@@ -32,10 +32,11 @@ struct JsonDatabase : ConstIterable<JsonDatabase<V>> {
 
     auto const & operator[](usize s) const {return *next(data, s);}
 
-    void write(string const &p, bool prepend=false) {
+    void write(string const &p, bool prepend=false, uint indent=0) {
         modified = timestamp();
         revision = GitRevision;
         std::ofstream ofs(prepend ? path_join(DefaultDataPath, p) : p);
+        if (indent) ofs << std::setw(indent);
         ofs << json{*this};
     };
 };
@@ -61,17 +62,8 @@ struct EnergyDatum<true> {
 using EnergyDatabase = JsonDatabase<std::map<string, EnergyDatum<false>>>;
 
 struct ConcentrationDatum {
-    vec<real> x0; vec<real> x; vec<vec<real>> A; vec<real> g;
+    Col<real> x0; Col<real> x; Mat<real> A; Col<real> g;
     NUPACK_REFLECT(ConcentrationDatum, x0, x, A, g);
-    real_mat matrix_A() const {
-        vec<real> v;
-        for (auto const & a : A) cat(v, a);
-        real_mat temp = v;
-        temp.reshape(len(A), len(front(A)));
-        temp.set_size(temp.n_cols, temp.n_rows);
-        temp = temp.t();
-        return temp;
-    }
 };
 
 struct PairsDatum {
@@ -89,5 +81,16 @@ struct PfuncDatum {
 };
 
 using PairsDatabase = JsonDatabase<std::map<string, PairsDatum>>;
+
+struct MeltDatum {
+    std::string sequence;
+    std::vector<real> temps;
+    string material;
+    real conc;
+    real sodium;
+    NUPACK_REFLECT(MeltDatum, sequence, temps, material, conc, sodium);
+};
+
+using MeltDatabase = JsonDatabase<std::map<string, MeltDatum>>;
 
 }

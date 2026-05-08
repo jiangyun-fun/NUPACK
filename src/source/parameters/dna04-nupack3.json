@@ -1,8 +1,26 @@
 {
+    "time_generated": "2021-06-10T16:40:04.268594",
+    "alphabet": {
+        "bases": [
+            {"letter": "A", "name": "DNA-A", "complement": "T", "material": "DNA", "input": "Aa"},
+            {"letter": "C", "name": "DNA-C", "complement": "G", "material": "DNA", "input": "Cc"},
+            {"letter": "G", "name": "DNA-G", "complement": "C", "material": "DNA", "input": "Gg"},
+            {"letter": "T", "name": "DNA-T", "complement": "A", "material": "DNA", "input": "UuTt"}
+        ],
+        "materials": [
+            {"name": "DNA", "letter": "d", "wildcards": {}}
+        ],
+        "wildcards": {"A": "A", "C": "C", "G": "G", "U": "T", "T": "T", "R": "AG", "M": "AC", "S": "CG", "W": "AT", "K": "GT", "Y": "CT", "V": "ACG", "H": "ACT", "D": "AGT", "B": "CGT", "N": "ACGT",
+                      "a": "A", "c": "C", "g": "G", "u": "T", "t": "T", "r": "AG", "m": "AC", "s": "CG", "w": "AT", "k": "GT", "y": "CT", "v": "ACG", "h": "ACT",             "b": "CGT", "n": "ACGT"}
+    },
+    "pairs": [
+        "AT",
+        "CG",
+        "GT"
+    ],
     "name": "dna04",
     "material": "DNA",
     "comment": "verify terminal mismatch",
-    "time_generated": "2020-01-16T15:12:30.148183",
     "default_wobble_pairing": true,
     "dG": {
         "bulge_size": [
@@ -12788,6 +12806,14 @@
             "TTGC": -0.3,
             "TTGG": -0.3,
             "TTGT": -0.3
+        },
+        "interior_mismatch_1": {
+            "AT": -0.6,
+            "CG": -1.0,
+            "GC": -1.0,
+            "GT": -0.5,
+            "TA": -0.7000000000000001,
+            "TG": -0.5
         }
     },
     "dH": {
@@ -25573,6 +25599,14 @@
             "TTGC": -0.3,
             "TTGG": -0.3,
             "TTGT": -0.3
+        },
+        "interior_mismatch_1": {
+            "AT": -2.7,
+            "CG": -6.0,
+            "GC": -2.8000000000000003,
+            "GT": 0.0,
+            "TA": -3.2,
+            "TG": 0.0
         }
     }
 }

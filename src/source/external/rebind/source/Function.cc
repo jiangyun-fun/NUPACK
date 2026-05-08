@@ -267,7 +267,7 @@ PyTypeObject Holder<Method>::type = []{
 PyObject * function_call(PyObject *self, PyObject *pyargs, PyObject *kws) noexcept {
     return raw_object([=] {
         auto const [t0, t1, sig, gil] = function_call_keywords(kws);
-        DUMP("specified types", bool(t0), bool(t1));
+        DUMP("specified return and first types ", bool(t0), " ", bool(t1));
         DUMP("gil = ", gil, " ", Py_REFCNT(self), Py_REFCNT(pyargs));
         DUMP("number of signatures ", cast_object<Function>(self).overloads.size());
         Sequence args;

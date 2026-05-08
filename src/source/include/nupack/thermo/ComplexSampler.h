@@ -24,19 +24,19 @@ namespace nupack { namespace thermo {
 template <class V, class Q>
 auto disconnected_weights(V const &v, Q const &logq, real const scale) {
     vec<std::pair<vec<Complex>, real>> ret;
-    for_partitions(false, indices(v), [&](auto const &i) {
+    for_each_partition(false, indices(v), [&](auto const &i) {
         real total_logq = (len(v) - len(i)) * log(scale);
         vec<Complex> complexes;
         for (auto const &x : i) {
             complexes.emplace_back(indexed_view(x, v));
-            complexes.back().rotate_lowest();
+            complexes.back() = lowest_rotation(complexes.back());
             auto it = binary_search(logq, complexes.back(), first_of);
             NUPACK_REQUIRE(it, !=, end_of(logq), v);
             total_logq += it->second;
         }
         ret.emplace_back(std::move(complexes), total_logq);
     });
-    auto max = maximum(ret, second_of).second;
+    auto max = maximum(ret, second_of);
     if (is_finite(exp(max))) max = 0; // biggest one is OK magnitude
     for (auto &i : ret) i.second = exp(i.second - max);
     return ret;
@@ -51,7 +51,7 @@ struct ComplexSampler {
         complex_logq(fw<Q>(logq)), weights(disconnected_weights(strands, complex_logq, scale)), distribution(item_view(weights)),
         strand_starts(prefixes<vec<iseq>>(true, indirect_view(strands, len))) {}
 
-    StrandList strands; // # strands
+    SequenceList strands; // # strands
     vec<std::pair<Complex, real>> complex_logq; // # complexes
     vec<std::pair<vec<Complex>, real>> weights; // # sets of complexes
     std::discrete_distribution<> distribution;
@@ -78,7 +78,7 @@ struct ComplexSampler {
         vec<PairList> ret(n, PairList(sum(strands, len)));
         auto r = begin_of(ret), s = r;
         zip(picks, weights, [&](auto n, auto const &p) {
-            small_vec<bool> mask(len(strands), true);
+            small_vec<bool> mask(n_strands(strands), true);
             for (auto const &x : p.first) {
                 auto &sample = *binary_search(samples, x, first_of);
                 auto map = reserved<vec<iseq>>(len(x));

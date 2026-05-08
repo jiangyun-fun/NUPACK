@@ -188,12 +188,17 @@ void init(Document &doc);
 extern "C" {
 
 #if PY_MAJOR_VERSION > 2
+
+#   pragma clang diagnostic push
+#   pragma clang diagnostic ignored "-Wmissing-field-initializers"
+    PyTypeObject o{PyVarObject_HEAD_INIT(NULL, 0)};
     static struct PyModuleDef rebind_definition = {
         PyModuleDef_HEAD_INIT,
         REBIND_STRING(REBIND_MODULE),
         "A Python module to run C++ unit tests",
         -1,
     };
+#   pragma clang diagnostic pop
 
     PyObject* REBIND_CAT(PyInit_, REBIND_MODULE)(void) {
         Py_Initialize();

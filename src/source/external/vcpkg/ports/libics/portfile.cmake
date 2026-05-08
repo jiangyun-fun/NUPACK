@@ -1,20 +1,21 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO svi-opensource/libics
-    REF 807193979650ab3d474e9a4bf907cf046eb0f3f0 # 1.6.4
-    SHA512 9fcbc14d4b62a8f5c6c114123a5cd3102c3398dd25f44caf07d033dbfc8304fc22dcde35e545ed984047a6009a0e7d7e30cbb6075fb10b9ceda0311cabc56ecb
+    REF "${VERSION}"
+    SHA512 0eba280c1174cbd0e1fe6da1502345720793df2f3f6ec31fe0043d79a31d7b79cac5d7da726891faacedc91056e6337a3a694e50d0baafa08314a2867ff3e62f
     HEAD_REF master
+    PATCHES fix-integral-include.patch
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
+    DISABLE_PARALLEL_CONFIGURE
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
 
-vcpkg_fixup_cmake_targets(CONFIG_PATH cmake)
+vcpkg_cmake_config_fixup(CONFIG_PATH cmake)
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
-file(COPY ${SOURCE_PATH}/GNU_LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/libics)
-file(RENAME ${CURRENT_PACKAGES_DIR}/share/libics/GNU_LICENSE ${CURRENT_PACKAGES_DIR}/share/libics/copyright)
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include" "${CURRENT_PACKAGES_DIR}/debug/share")
+
+file(INSTALL "${SOURCE_PATH}/GNU_LICENSE" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)

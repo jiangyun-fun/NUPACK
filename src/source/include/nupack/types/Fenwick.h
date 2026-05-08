@@ -1,6 +1,5 @@
 /** \file Fenwick.h
  * @brief Contains Fenwick class, implementing a Fenwick/binary index tree
- * @todo Fix test error for fenwick.find
  */
 
 #pragma once
@@ -70,16 +69,16 @@ struct Fenwick : MemberOrdered {
     /// For convenience in updating, hold the marginal values as well
     container_type values;
     /// Value to use as 0, sometimes might not be same as T()
-    T zero_value;
+    value_type zero_value;
 
 protected:
     /// Manually keep track of sum for easy lookup
-    T total_value;
+    value_type total_value;
 
     /// Increments value of i-th element by delta. O(log(n))
-    void increment_tree(size_type i, T delta) {
-        for (; i < len(tree); i = push_one_bit(i)) tree[i] += delta;
-    };
+    void increase_value(size_type i, value_type const &delta) {for (; i < len(tree); i = push_one_bit(i)) tree[i] += delta;}
+    /// Decrements value of i-th element by delta. O(log(n)) [separated to avoid issues with unsigned arithmetic]
+    void decrease_value(size_type i, value_type const &delta) {for (; i < len(tree); i = push_one_bit(i)) tree[i] -= delta;}
 
     /// Redo position in a tree, assuming it has been set to values[p]
     /// and that tree[:p] has been correctly set (O(1) amortized)
@@ -88,21 +87,31 @@ protected:
         for (auto i = minus_one(p); i >= pop_one_bit(p); i = minus_one(pop_one_bit(i))) tree[p] += tree[i];
     }
 
+    static constexpr bool compare(T const &t, T const &u) {
+        if constexpr(!std::is_convertible_v<decltype(t < u), bool>) return true;
+        else return t < u;
+    }
+
 public:
 
-    // Fenwick() = default;
+    Fenwick() = default;
 
     /// Initialize tree from zero value
-    explicit Fenwick(T t) : zero_value(t), total_value(t) {}
+    explicit Fenwick(value_type t) : zero_value(t), total_value(t) {}
+    
+    /// Initialize tree from zero value and size
+    explicit Fenwick(value_type t, size_type n) : zero_value(t), total_value(t) {resize(n);}
 
     /// Initialize tree from a vector of values
-    explicit Fenwick(T t, container_type v)
+    explicit Fenwick(value_type t, container_type v)
         : values(std::move(v)), zero_value(t), total_value(t) {redo_tree();}
 
     /************************************************************************************/
 
+    value_type const & get_zero() const {return zero_value;}
+
     /// Bracket operator to marginal values
-    value_type operator[](size_type i) const {return values[i];}
+    value_type const & operator[](size_type i) const {return values[i];}
     /// First value
     value_type front() const {return values.front();}
     /// Last value
@@ -119,30 +128,47 @@ public:
     const_iterator end() const {return values.cend();}
     /// Resize values and tree
     void resize(size_type s) {values.resize(s, zero_value); tree.resize(s, zero_value);}
+    /// Reset values to 0 of the given size
+    void reset(value_type t, size_type s) {
+        total_value = zero_value = std::move(t);
+        size_type const n = std::min(s, size());
+        std::fill_n(values.begin(), n, zero_value);
+        std::fill_n(tree.begin(), n, zero_value);
+        values.resize(s, zero_value); 
+        tree.resize(s, zero_value);
+    }
     /// Reserve space for values and tree
     void reserve(size_type s) {values.reserve(s); tree.reserve(s);}
 
     /************************************************************************************/
 
-    /// Add to the value of a position in the tree
-    void increment(size_type i, T const &t) {
-        values[i] += t;
-        total_value += t;
-        increment_tree(i, t);
-    }
     /// Update the value of a position in the tree
-    void update(size_type i, T const &t) {
+    void update(size_type i, value_type const &t) {
         if (!Release) NUPACK_REQUIRE(i, <, values.size());
-        increment_tree(i, t - values[i]);
-        total_value += t - values[i];
+        if (compare(values[i], t)) {
+            T const delta = t - values[i];
+            increase_value(i, delta);
+            total_value += delta;
+        } else if (compare(t, values[i])) {
+            T const delta = values[i] - t;
+            decrease_value(i, delta);
+            total_value -= delta;
+        }
         values[i] = t;
     }
     /// Zero the value of a position in the tree
     void zero(size_type i) {update(i, zero_value);}
     /// Swap two positions in the tree
     void swap_pos(size_type i, size_type j) {
-        auto delta = values[j] - values[i];
-        increment_tree(i, delta); increment_tree(j, -delta);
+        if (compare(values[i], values[j])) { // i grows, j decreases
+            T const delta = values[j] - values[i];
+            increase_value(i, delta); 
+            decrease_value(j, delta);
+        } else if (compare(values[j], values[i])) { // j grows, i decreases
+            T const delta = values[i] - values[j];
+            increase_value(j, delta);
+            decrease_value(i, delta); 
+        }
         swap(values[i], values[j]);
     }
 
@@ -159,10 +185,10 @@ public:
     /************************************************************************************/
 
     /// Access sum O(1)
-    T total() const {return total_value;}
+    value_type const &total() const {return total_value;}
     /// Sum of all elements of "values" with index < i
-    T sum(size_type i) const {
-        T out = zero_value;
+    value_type sum(size_type i) const {
+        value_type out = zero_value;
         while (i--) {out += tree[i]; i = pop_one_bit(i);}
         return out;
     }
@@ -189,7 +215,7 @@ public:
     template <class... Args>
     void emplace_back(Args&&... args) {
         auto const p = values.size();
-        values.emplace_back(T(fw<Args>(args)...));
+        values.emplace_back(value_type(fw<Args>(args)...));
         total_value += values[p];
         tree.emplace_back(values[p]); extend_to(p);
     }
@@ -223,13 +249,77 @@ public:
     auto sample(RNG &rng, False replace) {auto i = sample(rng, True()); zero(i); return i;}
 
     /******************************************************************************************/
+
+    template <class F>
+    void scale(F &&f) {
+        f(total_value);
+        for (auto &x : values) f(x);
+        for (auto &x : tree) f(x);
+    }
 };
 
-template <class T, class V> void sum(Fenwick<T, V> const &); // not implemented, do not use
+template <class T, class V> 
+[[deprecated]] void sum(Fenwick<T, V> const &); // not implemented, do not use
 
 /******************************************************************************************/
 
 NUPACK_DETECT(is_fenwick, void_if<T::is_fenwick::value>);
+
+/******************************************************************************************/
+
+template <class T, class I>
+struct FixedFenwick : MemberOrdered {
+    using size_type = typename Fenwick<I>::size_type;
+    static_assert(!is_integral<T> || is_signed<I>);
+    Fenwick<I> base;
+    T scale = 0; // will cause error if used in default state
+
+    FixedFenwick() = default;
+    FixedFenwick(T zero, T max) : base(zero), scale(T(std::numeric_limits<I>::max()) / max) {}
+    FixedFenwick(T zero, T max, std::size_t n) : base(zero, n), scale(T(std::numeric_limits<I>::max()) / max) {}
+
+    NUPACK_REFLECT(FixedFenwick, base, scale);
+
+    void resize(size_type n) {base.resize(n);}
+    void redo_tree() {base.redo_tree();}
+
+    auto find(T const &t) const {
+        auto out = base.find(t * scale);
+        return std::make_pair(out.first, out.second / scale);
+    }
+
+    T operator[](size_type i) const {return base[i] / scale;}
+    T total() const {return base.total() / scale;}
+    T sum(size_type i) const {return base.sum(i) / scale;}
+
+    void reset(T zero, T max, std::size_t n) {
+        base.reset(zero, n);
+        scale = T(std::numeric_limits<I>::max()) / max;
+    }
+
+    // Mutators
+    void maybe_rescale(T add) {
+        static_assert(std::numeric_limits<I>::digits >= 63, "designed for at least 64 bits");
+        T t = scale * (total() + add), max = T(std::numeric_limits<I>::max()), factor = 1;
+        NUPACK_REQUIRE(t, <=, max);
+        NUPACK_QUICK_REQUIRE(scale, !=, 0);
+        // return;
+        // // total is becoming too large, close to overflow
+        // if (t > 1e-4 * max) factor = max * 1e-5 / t; 
+        // // total is becoming too small, losing unnecessary precision
+        // if (t && t < 1e8) factor = 1e9 / t;
+
+        // if (factor != 1) {
+        //     base.scale([factor](I &i) {i = T(i) * factor;});
+        //     scale *= factor;
+        // }
+    }
+
+    void update(size_type i, T const &t) {maybe_rescale(t - base.values[i] / scale); base.update(i, t * scale);}
+    void emplace_back(T const &t) {maybe_rescale(t); base.emplace_back(t * scale);}
+    void swap_erase(size_type i) {maybe_rescale(base.values[i] / scale); base.swap_erase(i);}
+    void pop_back() {maybe_rescale(base.values.back() / scale); base.pop_back();}
+};
 
 /******************************************************************************************/
 

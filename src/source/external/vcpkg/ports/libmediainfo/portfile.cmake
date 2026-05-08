@@ -1,23 +1,32 @@
+string(REGEX REPLACE "^([0-9]+)[.]([1-9])\$" "\\1.0\\2" MEDIAINFO_VERSION "${VERSION}")
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO MediaArea/MediaInfoLib
-    REF v20.09
-    SHA512 0e9407d0a430c396b98f8e911e606bc4fa14914881540552bc81d78a57908aa4a54666f415474dda176527ed88148629660e3f2c090f648db8b75a92fec2449f
+    REF "v${MEDIAINFO_VERSION}"
+    SHA512 efcf796a679aa91e9003ecc655401d856ee9de3c01e03236f0ea09525d725fa7bb7fc0a1816d97482c7774c2209ec74420086775a59d6f4b5309107b22e67c31
     HEAD_REF master
-    PATCHES vcpkg_support_in_cmakelists.patch
+    PATCHES
+        dependencies.diff
 )
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}/Project/CMake
-    PREFER_NINJA
+vcpkg_find_acquire_program(PKGCONFIG)
+
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}/Project/CMake"
     OPTIONS
         -DBUILD_ZENLIB=0
         -DBUILD_ZLIB=0
+        "-DPKG_CONFIG_EXECUTABLE=${PKGCONFIG}"
+        -DCMAKE_REQUIRE_FIND_PACKAGE_PkgConfig=1
+        -DCMAKE_REQUIRE_FIND_PACKAGE_TinyXML=1
 )
+vcpkg_cmake_install()
+vcpkg_cmake_config_fixup(PACKAGE_NAME mediainfolib)
+vcpkg_fixup_pkgconfig()
+if(NOT VCPKG_BUILD_TYPE AND VCPKG_TARGET_IS_WINDOWS)
+    vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/debug/lib/pkgconfig/libmediainfo.pc" " -lmediainfo" " -lmediainfod")
+endif()
 
-vcpkg_install_cmake()
-vcpkg_fixup_cmake_targets(CONFIG_PATH share/mediainfolib TARGET_PATH share/mediainfolib)
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
-
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

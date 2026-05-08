@@ -4,7 +4,7 @@
 #include "../types/Structure.h"
 #include "../types/Matrix.h"
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 
 using defect_vec = vec<std::pair<uint, real>>;
@@ -32,6 +32,6 @@ struct Defect {
 };
 
 vec<real> nucleotide_defects(ProbabilityMatrix const &, Structure const &);
-vec<real> nucleotide_defects(Tensor<real, 2> const &, Structure const &);
+vec<real> nucleotide_defects(Mat<real> const &, Structure const &);
 
-}}
+}

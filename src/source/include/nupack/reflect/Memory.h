@@ -28,9 +28,11 @@ template <> struct is_simple<std::type_index, void> : True {};
 
 template <class T, class=void>
 struct impl {
-    static_assert(!is_nupack<T> || is_simple<T>::value, "You need to specialize this if not simple");
+    // static_assert(!is_nupack<T> || is_simple<T>::value, "You need to specialize this if not simple");
     constexpr auto operator()(T const &) const {return sizeof(if_t<is_complete<T>, T, std::true_type>);}
-    void erase(T const &) const {}
+    void erase(T const &t) const {
+        if constexpr(std::is_default_constructible_v<T> && std::is_class_v<T>) {using std::swap; T u; swap(t, u);}
+    }
 };
 
 /******************************************************************************************/
@@ -91,8 +93,10 @@ template <class T> struct impl<T, void_if<is_tuple<T>>> {
 
 /******************************************************************************************/
 
+template <class T> struct custom : False {};
+
 /// Class with declared members API
-template <class T> struct impl<T, void_if<has_members<T>>> {
+template <class T> struct impl<T, void_if<has_members<T> && !custom<T>::value>> {
     template <class M, std::size_t ...Is>
     constexpr auto count(M const &m, indices_t<Is...>) const {
         return impl<std::tuple<no_ref<tuple_type<M, Is>>...>>()(m);

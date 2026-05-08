@@ -6,6 +6,13 @@ namespace nupack {
 
 /******************************************************************************************/
 
+string SequenceSet::sequence_string(string const sep) const {
+    auto ret = sum(seqs, [&](auto const &s){return raw_sequence_string(s, 0) + sep;});
+    ret.pop_back(); return ret;
+}
+
+/******************************************************************************************/
+
 std::pair<iseq, iseq> SequenceSet::associate(SequenceSet & k, iseq ps, iseq ks, BaseIter pb, BaseIter kb) {
     auto &p = *this;
     SubsequenceList pseqs = {p.seqs[ps]};
@@ -53,7 +60,7 @@ std::pair<iseq, iseq> SequenceSet::split(BasePairAddition const &m, SequenceSet 
 
 /******************************************************************************************/
 
-string loop_stack_string(small_vec<LoopStackingState::Stack> const &v) {
+string loop_stack_string(vec<LoopStackingState::Stack> const &v) {
     string out;
     out.reserve(v.size());
     for (auto i : v) out.push_back(loop_stack_letter(i));
@@ -62,7 +69,7 @@ string loop_stack_string(small_vec<LoopStackingState::Stack> const &v) {
 
 /******************************************************************************************/
 
-string loop_stack_sequence_string(small_vec<LoopStackingState::Stack> const &v) {
+string loop_stack_sequence_string(vec<LoopStackingState::Stack> const &v) {
     string s;
     s.resize(v.size());
     izip(s, [&](auto i, char &c) {

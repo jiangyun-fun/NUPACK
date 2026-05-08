@@ -16,6 +16,7 @@
 #include <iostream>
 #include <iomanip>
 #include <mutex>
+#include <memory>
 
 #include <boost/preprocessor/variadic/to_seq.hpp>
 #include <boost/preprocessor/stringize.hpp>
@@ -33,20 +34,19 @@ NUPACK_DEFINE_TYPE(is_ios_flag, decay<decltype(std::setprecision(10))>);
 NUPACK_EXTEND_TYPE(is_ios_flag, decay<decltype(std::setbase(10))>);
 NUPACK_EXTEND_TYPE(is_ios_flag, decay<decltype(std::setfill(' '))>);
 NUPACK_EXTEND_TYPE(is_ios_flag, decay<decltype(std::setw(10))>);
-NUPACK_DEFINE_VARIADIC(is_string, std::basic_string, class);
 
 /******************************************************************************************/
 
 namespace io {
 
 /// Default out stream used in NUPACK (initialized to std::cout)
-extern std::ostream *default_out;
+extern std::shared_ptr<std::ostream> default_out;
 /// Mutex protecting the default out stream
 extern std::mutex default_out_guard;
 /// Return a reference to the default out stream
 inline std::ostream & out() {return *default_out;}
 /// Set the default out stream (lock is used)
-inline void set_out(std::ostream &os) {with_lock(default_out_guard, [&]{default_out = &os;});}
+inline void set_out(std::shared_ptr<std::ostream> os) {with_lock(default_out_guard, [&]{default_out = std::move(os);});}
 
 /******************************************************************************************/
 
@@ -70,8 +70,6 @@ struct PrintAsSet : True {
     static constexpr auto end() {return '}';}
 };
 
-template <class T> struct PrintAsContainer<T, void_if<is_string<T>>> : PrintAsList {};
-
 /******************************************************************************************/
 
 template <class T, class=void> struct SingleLine : True {
@@ -93,9 +91,9 @@ struct SingleLine<T, void_if<has_members<T> && !PrintAsContainer<T>::value && !i
 };
 
 template <class T>
-struct SingleLine<T, void_if<has_len<T> && PrintAsContainer<T>::value && !is_streamable<T> && !is_character<value_type_of<T>>>> {
+struct SingleLine<T, void_if<has_len<T> && PrintAsContainer<T>::value && !is_character<value_type_of<T>>>> {
     bool operator()(T const &t) const {
-        return !len(t) || (all_of(t, is_single_line) && memory::measure(t) < 1024);
+        return std::empty(t) || (all_of(t, is_single_line) && memory::measure(t) < 1024);
     }
 };
 
@@ -127,14 +125,14 @@ NUPACK_PRINT_IF(is_pair<T>);
 NUPACK_PRINT_IF(is_tuple<T>);
 NUPACK_PRINT_IF(traits::is_ref_wrapper<T>);
 NUPACK_PRINT_IF(traits::is_enum<T> && !is_streamable<T>);
-NUPACK_PRINT_IF(PrintAsContainer<T>::value && !is_streamable<T> && !is_character<value_type_of<T>>);
-NUPACK_PRINT_IF(PrintAsContainer<T>::value && !is_streamable<T> && is_character<value_type_of<T>>);
+NUPACK_PRINT_IF(PrintAsContainer<T>::value && !is_character<value_type_of<T>>);
+NUPACK_PRINT_IF(PrintAsContainer<T>::value && is_character<value_type_of<T>>);
 NUPACK_PRINT_IF(has_members<T> && !PrintAsContainer<T>::value && !is_streamable<T>);
 NUPACK_PRINT_IF(is_dumb_ptr<T> && !is_streamable<T> && !PrintAsContainer<T>::value);
 
 /******************************************************************************************/
 
-NUPACK_PRINT_IF(is_streamable<T>) {
+NUPACK_PRINT_IF(is_streamable<T> && !PrintAsContainer<T>::value) {
     using uses_shift = True;
     void operator()(std::ostream &os, T const &t, Indent) const {
         if (!is_single_line(t)) os << '\n'; os << t;
@@ -238,7 +236,7 @@ NUPACK_PRINT_IF(has_members<T> && !PrintAsContainer<T>::value && !is_streamable<
 
 /******************************************************************************************/
 
-NUPACK_PRINT_IF(PrintAsContainer<T>::value && !is_streamable<T> && !is_character<value_type_of<T>>) {
+NUPACK_PRINT_IF(PrintAsContainer<T>::value && !is_character<value_type_of<T>>) {
     void operator()(std::ostream &os, T const &t, Indent id) const {
         using VT = decay<value_type_of<T>>;
         auto const simple = is_single_line(t);
@@ -252,7 +250,7 @@ NUPACK_PRINT_IF(PrintAsContainer<T>::value && !is_streamable<T> && !is_character
 
 /******************************************************************************************/
 
-NUPACK_PRINT_IF(PrintAsContainer<T>::value && !is_streamable<T> && is_character<value_type_of<T>>) {
+NUPACK_PRINT_IF(PrintAsContainer<T>::value && is_character<value_type_of<T>>) {
     void operator()(std::ostream &os, T const &t, Indent) const {
         for (auto &&i : t) Printer<decay<value_type_of<T>>>()(os, i, {});
     }
@@ -296,14 +294,14 @@ template <class T> struct ArgPrinter<T, void_if<is_ios_flag<T>>> {
 /******************************************************************************************/
 
 /// Print to a stream with a given Indent, a given delimiter, and a given ending string
-template <class Delim=io::character<' '>, class Stop=io::new_line, class ...Ts>
+template <class Delim=io::character<' '>, class Stop=io::endl, class ...Ts>
 void print_os(io::Indent id, std::ostream &os, Ts const &...ts) {
     bool d = false;
     NUPACK_UNPACK((d = io::ArgPrinter<Ts>::template call<Delim>(d, os, ts, id)));
     Stop()(os);
 }
 /// Print to a stream with no Indent, a given delimiter, and a given ending string
-template <class Delim=io::character<' '>, class Stop=io::new_line, class ...Ts>
+template <class Delim=io::character<' '>, class Stop=io::endl, class ...Ts>
 void print_os(std::ostream &os, Ts const &...ts) {print_os<Delim, Stop>(io::Indent(), os, ts...);}
 /// Print to a stream with no Indent, no delimiter, no ending string
 template <class ...Ts>
@@ -417,7 +415,7 @@ namespace detail {
 
 /// For debugging: print file location and a variadic number of arguments
 #define BEEP(...) ({ \
-    std::stringstream NUPACK_BUFFER; NUPACK_BUFFER << std::setprecision(16) << std::boolalpha; \
+    std::stringstream NUPACK_BUFFER; NUPACK_BUFFER << std::setprecision(15) << std::boolalpha; \
     NUPACK_BUFFER << NUPACK_FILE << ", " << __LINE__ << ": " << std::endl; \
     BOOST_PP_SEQ_FOR_EACH(NUPACK_APPEND, , BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__)); \
     ::nupack::print(NUPACK_BUFFER.str()); \

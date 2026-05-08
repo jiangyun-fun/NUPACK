@@ -1,24 +1,28 @@
-vcpkg_fail_port_install(ON_TARGET "Windows" "UWP")
-
 vcpkg_check_linkage(ONLY_DYNAMIC_LIBRARY)
 
-set(OpenMPI_FULL_VERSION "4.0.3")
-set(OpenMPI_SHORT_VERSION "4.0")
+string(REGEX REPLACE [[^([0-9]+[.][0-9]+).*$]] [[\1]] OpenMPI_SHORT_VERSION "${VERSION}")
 
 vcpkg_download_distfile(ARCHIVE
-  URLS "https://download.open-mpi.org/release/open-mpi/v${OpenMPI_SHORT_VERSION}/openmpi-${OpenMPI_FULL_VERSION}.tar.gz"
-  FILENAME "openmpi-${OpenMPI_FULL_VERSION}.tar.gz"
-  SHA512 23a9dfb7f4a63589b82f4e073a825550d3bc7e6b34770898325323ef4a28ed90b47576acaae6be427eb2007b37a88e18c1ea44d929b8ca083fe576ef1111fef6
+    URLS "https://download.open-mpi.org/release/open-mpi/v${OpenMPI_SHORT_VERSION}/openmpi-${VERSION}.tar.gz"
+    FILENAME "openmpi-${VERSION}.tar.gz"
+    SHA512 34d8db42b93d79f178fea043ff8b5565e646b4935be6fa57fff6674030e901b4c84012c800304a6ce639738beb04191fe78a9372eae626dd4a2f8c0839711e46
 )
 
-vcpkg_extract_source_archive_ex(
-    OUT_SOURCE_PATH SOURCE_PATH
+vcpkg_extract_source_archive(
+    SOURCE_PATH
     ARCHIVE ${ARCHIVE}
+    PATCHES
+        keep_isystem.patch
 )
 
 vcpkg_find_acquire_program(PERL)
 get_filename_component(PERL_PATH ${PERL} DIRECTORY)
 vcpkg_add_to_path(${PERL_PATH})
+
+# Put wrapper data dir side-by-side to wrapper executables dir instead of loosing debug data.
+# VCPKG_CONFIGURE_MAKE_OPTIONS overwrites vcpkg_configure_make overwrites OPTIONS.
+vcpkg_list(PREPEND VCPKG_CONFIGURE_MAKE_OPTIONS_DEBUG [[--datadir=\${prefix}/../tools/openmpi/debug/share]])
+vcpkg_list(PREPEND VCPKG_CONFIGURE_MAKE_OPTIONS_RELEASE [[--datadir=\${prefix}/tools/openmpi/share]])
 
 vcpkg_configure_make(
         COPY_SOURCE
@@ -26,13 +30,18 @@ vcpkg_configure_make(
         OPTIONS
             --with-hwloc=internal
             --with-libevent=internal
+            --with-pmix=internal
+            --disable-mpi-fortran
         OPTIONS_DEBUG
             --enable-debug
 )
 
-vcpkg_install_make(DISABLE_PARALLEL)
+vcpkg_install_make()
+vcpkg_fixup_pkgconfig()
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+file(INSTALL "${CURRENT_PORT_DIR}/mpi-wrapper.cmake" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")
+
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

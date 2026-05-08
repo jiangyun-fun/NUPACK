@@ -1,15 +1,18 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO Tessil/robin-map
-    REF 622443f40544fb6a693402e69c1328d685eac939 # v0.6.3
-    SHA512 ec91ee3ce1a992cfc1b82c17d8d0d1d1af7078df9871b585526a81e1e05162b844958d3bf61badad191902d837832e29dc254755965410beac702ddf15c55a49
+    REF "v${VERSION}"
+    SHA512 862cb98d771d1acb692e27d1cc8a4f2cda0883b66af7b38b63ea702ed2d4fc4d49e5700ca4d5f5148fee132f36e111c4839d4f8c52c96a9c60f3937d941b2320
     HEAD_REF master
 )
 
-file(COPY ${SOURCE_PATH}/include/tsl DESTINATION ${CURRENT_PACKAGES_DIR}/include)
-
-file(INSTALL
-    ${SOURCE_PATH}/LICENSE
-    DESTINATION ${CURRENT_PACKAGES_DIR}/share/robin-map
-    RENAME copyright
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
 )
+
+vcpkg_cmake_install()
+vcpkg_cmake_config_fixup(PACKAGE_NAME tsl-robin-map CONFIG_PATH share/cmake/tsl-robin-map)
+
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug")
+
+file(INSTALL "${SOURCE_PATH}/LICENSE" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)

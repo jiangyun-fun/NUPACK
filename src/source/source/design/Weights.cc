@@ -1,7 +1,7 @@
 #include <nupack/design/Weights.h>
 #include <nupack/design/Design.h>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 ReversedComplex::ReversedComplex(Design const &design, uint index) {
     reverse_map(design, index);
@@ -10,7 +10,7 @@ ReversedComplex::ReversedComplex(Design const &design, uint index) {
 
 void ReversedComplex::reverse_map(Design const &design, uint index) {
     auto const &complex = at(design.complexes, index);
-    _N = len(complex);
+    _N = nt(complex);
 
     auto reverser = [] (auto const &x) { return std::make_pair(x.second, x.first); };
 
@@ -21,7 +21,7 @@ void ReversedComplex::reverse_map(Design const &design, uint index) {
     uint i = 0;
     for (auto const &s : complex.strands) {
         auto it = strand_map.find(s);
-        if (it == strand_map.end()) NUPACK_BUG("discovered new strand, and that shouldn't be possible", s);
+        if (it == strand_map.end()) NUPACK_ERROR("discovered new strand, and that shouldn't be possible", s);
         uint cur_length = len(it->first);
         _strands.emplace(std::make_pair(i, i + cur_length), it->second);
         i += cur_length;
@@ -37,7 +37,7 @@ void ReversedComplex::reverse_map(Design const &design, uint index) {
     i = 0;
     for (auto const &d : complex_domains) {
         auto it = domain_map.find(d);
-        if (it == domain_map.end()) NUPACK_BUG("discovered new domain, and that shouldn't be possible", d);
+        if (it == domain_map.end()) NUPACK_ERROR("discovered new domain, and that shouldn't be possible", d);
         uint cur_length = len(it->first);
         _domains.emplace(std::make_pair(i, i + cur_length), it->second);
         i += cur_length;
@@ -67,8 +67,13 @@ vec<string> ReversedComplex::strands() const {
 
 
 void Weights::resolve_weights(Design const &design) {
+    for (auto const &w : specifications) {
+        if (w.domain.empty() && w.strand.empty() && w.complex.empty() && w.tube.empty())
+            NUPACK_ERROR("weight must have a scope: tube, complex, strand, and/or domain");
+    }
+
     auto it = partition(specifications, [](auto const &spec) {
-        return bool(spec.tube); // has tube component
+        return !spec.tube.empty(); // has tube component
     });
     auto tube_specific = view(begin_of(specifications), it);
     auto complex_specific = view(it, end_of(specifications));
@@ -77,7 +82,7 @@ void Weights::resolve_weights(Design const &design) {
     vec<uint> on_targets;
     izip(design.complexes, [&](auto i, auto const &c) {
         if (c.is_on_target()) {
-            per_complex.emplace(i, vec<real>(len(c), 1.0));
+            per_complex.emplace(i, vec<real>(nt(c), 1.0));
             on_targets.emplace_back(i);
         }
     });
@@ -87,7 +92,7 @@ void Weights::resolve_weights(Design const &design) {
 
     /* process complex level weights */
     for (auto const &w : complex_specific) {
-        auto complexes = bool(w.complex) ? vec<uint>{find_complex(w.complex.value(), design)} : on_targets;
+        auto complexes = !w.complex.empty() ? vec<uint>{find_complex(w.complex, design)} : on_targets;
 
         for (auto i : complexes) resolve_single_complex(per_complex, i, w);
     }
@@ -106,21 +111,20 @@ void Weights::resolve_weights(Design const &design) {
 
     /* process tube specific weights */
     for (auto const &w : tube_specific) {
-        uint tube_index = find_tube(w.tube.value(), design);
+        uint tube_index = find_tube(w.tube, design);
         auto &current_tube_complexes = at(per_tube, tube_index);
 
         vec<uint> tube_on_targets(key_view(current_tube_complexes));
-        auto complexes = bool(w.complex) ? vec<uint>{find_complex(w.complex.value(), design)} : tube_on_targets;
+        auto complexes = !w.complex.empty() ? vec<uint>{find_complex(w.complex, design)} : tube_on_targets;
 
         /* complain if on-target isn't in tube */
-        if (bool(w.complex) && !contains(tube_on_targets, at(complexes, 0))) {
-            NUPACK_ERROR("Tube does not contain this on-target", w.tube.value(), w.complex.value());
+        if (!w.complex.empty() && !contains(tube_on_targets, at(complexes, 0))) {
+            NUPACK_ERROR("Tube does not contain this on-target", w.tube, w.complex);
         }
 
         for (auto i : complexes) resolve_single_complex(current_tube_complexes, i, w);
     }
 }
-
 
 /**
  * @brief process alternative possibilities for the weight and multiply out the
@@ -138,17 +142,20 @@ void Weights::resolve_single_complex(ComplexWeights &cws, uint index, Weight con
     auto domains = at(reversed_complexes, index).domains();
 
     /* only alternative conditions as complex and tube are fixed at this level */
-    if (!bool(w.strand) && !bool(w.domain)) {
+    if (w.strand.empty() && w.domain.empty()) {
         for (auto &n : comp_weights) n *= w.weight;
-    } else if (!bool(w.strand) && bool(w.domain)) {
+    
+    } else if (w.strand.empty() && !w.domain.empty()) {
         zip(comp_weights, domains, [&](auto &n, auto const &d) {
             if (d == w.domain) n *= w.weight;
         });
-    } else if (bool(w.strand) && !bool(w.domain)) {
+
+    } else if (!w.strand.empty() && w.domain.empty()) {
         zip(comp_weights, strands, [&](auto &n, auto const &s) {
             if (s == w.strand) n *= w.weight;
         });
-    } else if (bool(w.strand) && bool(w.domain)) {
+
+    } else if (!w.strand.empty() && !w.domain.empty()) {
         zip(comp_weights, strands, domains, [&](auto &n, auto const &s, auto const &d) {
             if (s == w.strand && d == w.domain) n *= w.weight;
         });
@@ -161,14 +168,5 @@ void Weights::make_reversed_complexes(Design const &design, vec<uint> const &on_
 }
 
 
-Weight::Weight(Optional<string> t, Optional<string> c, Optional<string> s, Optional<string> d, real w) :
-        tube(t), complex(c), strand(s), domain(d), weight(w) {
-    if (!(bool(tube) || bool(complex) || bool(strand) || bool(domain))) {
-        NUPACK_ERROR("weight must have a scope: tube, complex, strand, and/or domain");
-    }
+
 }
-
-
-
-
-}}

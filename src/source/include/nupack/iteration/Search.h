@@ -11,7 +11,6 @@
 #include "../algorithms/Utility.h"
 #include "../algorithms/Operators.h"
 #include "../algorithms/Tuple.h"
-#include "../common/Constants.h"
 #include <stdexcept>
 
 namespace nupack {
@@ -33,12 +32,16 @@ void collect(V &v, F &&f) {for (auto &i : v) i = f();}
 
 /******************************************************************************************/
 
-template <class V, class F=Identity> bool any_of(V const &v, F &&f={}) {return std::any_of(begin_of(v), end_of(v), fw<F>(f));}
-template <class V, class F=Identity> bool all_of(V const &v, F &&f={}) {return std::all_of(begin_of(v), end_of(v), fw<F>(f));}
-template <class V, class F=Identity> bool none_of(V const &v, F &&f={}) {return std::none_of(begin_of(v), end_of(v), fw<F>(f));}
+template <class V, class F=Identity>
+bool any_of(V const &v, F &&f={}) {return std::any_of(begin_of(v), end_of(v), fw<F>(f));}
+template <class V, class F=Identity>
+bool all_of(V const &v, F &&f={}) {return std::all_of(begin_of(v), end_of(v), fw<F>(f));}
+template <class V, class F=Identity>
+bool none_of(V const &v, F &&f={}) {return std::none_of(begin_of(v), end_of(v), fw<F>(f));}
 
 /// Find index of an element in a container
-template <class V, class T> usize find_index(V const &vec, T &&t) {
+template <class V, class T>
+usize find_index(V const &vec, T &&t) {
     return std::find(begin_of(vec), end_of(vec), fw<T>(t)) - begin_of(vec);
 }
 
@@ -154,8 +157,8 @@ auto find_with_mask(V const &v, T const &t, M const &mask) {
 template <class M, class T>
 std::tuple<usize, usize, T> find_cumulative_mat(M const &m, T t) {
     usize b = 0, c = 0;
-    for (b = 0; b != 4; ++b) for (c = 0; c != 4; ++c)
-        if (minus_if(t, m(b, c))) return std::make_tuple(b, c, t);
+    for (b = 0; b != m.n_rows; ++b) for (c = 0; c != m.n_cols; ++c)
+        if (minus_if(t, m.at(b, c))) return std::make_tuple(b, c, t);
     throw std::out_of_range("find_cumulative_mat");
 }
 
@@ -169,39 +172,39 @@ auto find_first_mismatch(It1 b, It2 e, F &&f=Identity()) {
 
 /******************************************************************************************/
 
-template <class V, class F, class Comp=less_t>
-auto extremum(V &&v, F &&f, Comp &&comp={}) {
+template <class V, class F, class Comp>
+decltype(auto) extremum(V &&v, F &&f, Comp &&comp) {
     auto it = begin_of(v);
     auto const e = end_of(v);
-    auto ret = f(*it);
-    while (++it != e) {auto tmp = f(*it); if (comp(tmp, ret)) ret = tmp;}
-    return ret;
+    if constexpr(std::is_lvalue_reference_v<decltype(f(*it))>) {
+        auto ret = std::addressof(f(*it));
+        while (++it != e) {auto &&tmp = f(*it); if (comp(tmp, *ret)) ret = std::addressof(tmp);}
+        return *ret;
+    } else {
+        auto ret = f(*it);
+        while (++it != e) {auto tmp = f(*it); if (comp(tmp, ret)) ret = tmp;}
+        return ret;
+    }
 }
+
+template <class V, class F=Identity>
+decltype(auto)  maximum(V &&v, F &&f=Identity()) {
+    return extremum(fw<V>(v), fw<F>(f), greater);
+}
+
+template <class V, class F=Identity>
+decltype(auto) minimum(V &&v, F &&f=Identity()) {
+    return extremum(fw<V>(v), fw<F>(f), less);
+}
+
+/******************************************************************************************/
 
 template <class V, class F=Identity> auto max_element(V &&v, F &&f=Identity()) {
     return std::max_element(begin_of(v), end_of(v), reduce_op<less_t>(fw<F>(f)));
 }
 
-template <class V, class F=Identity> decltype(auto) maximum(V &&v, F &&f=Identity()) {
-    return *max_element(fw<V>(v), fw<F>(f));
-}
-
-/******************************************************************************************/
-
 template <class V, class F=Identity> auto min_element(V &&v, F &&f=Identity()) {
     return std::min_element(begin_of(v), end_of(v), reduce_op<less_t>(fw<F>(f)));
-}
-
-template <class V, class F=Identity> decltype(auto) minimum(V &&v, F &&f=Identity()) {
-    return *min_element(fw<V>(v), fw<F>(f));
-}
-
-template <class V, class F> auto max_value(V &&v, F &&f) {
-    auto b = begin_of(v);
-    auto const e = end_of(v);
-    auto ret = f(*b);
-    while (++b != e) {auto tmp = f(*b); if (tmp > ret) ret = tmp;}
-    return ret;
 }
 
 /******************************************************************************************/

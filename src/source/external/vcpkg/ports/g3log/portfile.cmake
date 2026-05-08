@@ -1,20 +1,17 @@
+vcpkg_minimum_required(VERSION 2022-10-12) # for ${VERSION}
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO KjellKod/g3log
-    REF f1491791785101d4ae948f8ecee7e9cc3e6b0be8
-    SHA512 852ed7c9eb2345f02414be7fb7dfbd4be340dcbf8abc4e6ba6327d181cf10e33969279166151b4eeab78b290d3fecbf4a5094696c412f7b2ab815df415652bd8
+    REF "${VERSION}"
+    SHA512 f48c5bb30d734fc218a5bfb19a406101c89deaee4a2f76b21c7105215a29f558efc2759ee1c1664f62cb37e2d8ae0666f99fdce9b863221e4a9efc9814cdf30c
     HEAD_REF master
 )
 
 string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "dynamic" G3_SHARED_LIB)
 string(COMPARE EQUAL "${VCPKG_CRT_LINKAGE}" "dynamic" G3_SHARED_RUNTIME)
 
-# https://github.com/KjellKod/g3log#prerequisites
-set(VERSION "1.3.2-80")
-
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
         -DG3_SHARED_LIB=${G3_SHARED_LIB} # Options.cmake
         -DG3_SHARED_RUNTIME=${G3_SHARED_RUNTIME} # Options.cmake
@@ -24,11 +21,11 @@ vcpkg_configure_cmake(
         -DVERSION=${VERSION}
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
 
 vcpkg_copy_pdbs()
 
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/g3logger TARGET_PATH share/g3logger)
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/g3log)
 
 file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
 

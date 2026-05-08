@@ -6,7 +6,7 @@
 #include "Weights.h"
 #include "Logging.h"
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 /**
  * @brief Contains the tangible elements of the design
@@ -38,17 +38,17 @@ struct Design : MemberOrdered {
 
     Sequence const & sequence() const {return sequences.nucleotides;}
 
-    vec<real> log_pfuncs(Local const &env, uint depth=0, EnsemblePartition const &part={},
+    vec<real> log_pfuncs(Env const &ct, uint depth=0, EnsemblePartition const &part={},
             EnsembleLevelSpecification const &indiv={}, EngineObserver &obs=NullEngineObserver) const;
-    vec<Defect> complex_defects(Local const &env, uint depth=0, EnsemblePartition const &part={},
+    vec<Defect> complex_defects(Env const &ct, uint depth=0, EnsemblePartition const &part={},
             EnsembleLevelSpecification const &indiv={}, EngineObserver &obs=NullEngineObserver) const;
 
-    Defect normalized_defect(Local const &env, uint depth=0, EnsemblePartition const &part={},
+    Defect normalized_defect(Env const &ct, uint depth=0, EnsemblePartition const &part={},
             EnsembleLevelSpecification const &indiv={}, Weights const &weights={}, EngineObserver &obs=NullEngineObserver) const;
 
-    uint max_depth() const {return maximum(complexes, [](auto const &c) {return c.depth();}).depth();}
-    void initialize_decomposition(EnsemblePartition const &part={});
-    void redecompose_active(Local const &env, uint depth, EnsemblePartition const &part={});
+    uint max_depth() const {return maximum(complexes, [](auto const &c) {return c.depth();});}
+    void initialize_decomposition(Env const &, EnsemblePartition const &part={});
+    void redecompose_active(Env const &ct, uint depth, EnsemblePartition const &part={});
 
     /* JSON serialization without the model since the whole point is deferred/cached creation */
     static constexpr auto repr_names() {return make_names("sequences", "complexes", "tubes");}
@@ -64,4 +64,4 @@ uint find_complex(string name, Design const &design);
 Variant<DomainView, StrandView> find_sequence_element(Design const &, string const &);
 
 
-}}
+}

@@ -1,30 +1,78 @@
-from nupack import SetSpec, RawStrand, RawComplex, Strand, Complex, Tube, tube_analysis, \
-    Model, complex_analysis, complex_concentrations, Domain, TargetStrand, analysis
-import numpy as np
+from nupack import *
+import numpy as np, pickle
 
 ################################################################################
 
+def pickles(a):
+    aname = getattr(a, 'name', None)
+    s = pickle.dumps(a)
+    b = pickle.loads(s)
+    bname = getattr(b, 'name', None)
+    assert a == b
+    assert aname == bname
+
+def test_pickle():
+    A = Strand('AGTCTAGGATTCGGCGTGGGTTAA', name='A')
+    pickles(A)
+    a1 = Domain('AGTCTAGGATTCGGCGT', name='a1')
+    pickles(a1)
+    D = TargetStrand([a1], name='D')
+    pickles(D)
+    c1 = SequenceList([A])
+    pickles(c1)
+    c1 = Complex([A], name='c1')
+    pickles(c1)
+    tc = TargetComplex([D], structure='.17', name='A')
+    pickles(tc)
+
 def test_strands():
-    A = RawStrand('AGTCTAGGATTCGGCGTGGGTTAA')
-    B = RawStrand('TTAACCCACGCCGAATCCTAGACTCAAAGTAGTCTAGGATTCGGCGTG')
-    C = RawStrand('AGTCTAGGATTCGGCGTGGGTTAACACGCCGAATCCTAGACTACTTTG')
+    #DNA tests
+    a_d = Model(material = 'dna04').alphabet()
+    A = Strand('AGTCTAGGATTCGGCGTGGGTTAA', name='A', alphabet=a_d)
+    B = Strand('TTAACCCACGCCGAATCCTAGACTCAAAGTAGTCTAGGATTCGGCGTG', name='B', alphabet=a_d)
+    C = Strand('AGTCTAGGATTCGGCGTGGGTTAACACGCCGAATCCTAGACTACTTTG', name='C', alphabet=a_d)
+    A_d = Strand('dTTT', name='A_d', alphabet=a_d)
+    try:
+        print(Strand('rTTT', name='r_in_d', alphabet=a_d))
+        assert False
+    except RuntimeError:
+        pass
+
+    #RNA tests
+    a_r = Model().alphabet()
+    A_r = Strand('AAA', name='A_r', alphabet=a_r)
+    B_r = Strand('TTT', name='B_r', alphabet=a_r)
+    C_r = Strand('rTTT', name='C_r', alphabet=a_r)
+    try:
+        print(Strand('dTTT', name='d_in_r', alphabet=a_r))
+        assert False
+    except RuntimeError:
+        pass
 
     a1 = Domain('AGTCTAGGATTCGGCGT', name='a1')
     a2 = Domain('GGGTTAA', name='a2')
     D = TargetStrand([a1, a2], name='D') # mostly useful in a design context
 
-
-    c1 = RawComplex([A])
-    c2 = RawComplex([A, B, B, C])
-    c3 = RawComplex([A, A])
-    c4 = RawComplex([A, B, C])
-    c1a = RawComplex([A, B])
-    c1b = RawComplex([B, A])
-    c1c = RawComplex([A, B])
+    c1 = SequenceList([A])
+    c2 = SequenceList([A, B, B, C])
+    c3 = SequenceList([A, A])
+    c4 = SequenceList([A, B, C])
+    c1a = SequenceList([A, B])
+    c1b = SequenceList([B, A])
+    c1c = SequenceList([A, B])
 
     assert c1a == c1b
     assert c1a == c1a
     assert c1a == c1c
+
+def test_sample():
+    a = Strand('C10G10', name='a')
+    b = Strand('C10G10', name='b')
+    cs = ComplexSet([a, b], complexes=SetSpec(max_size=2))
+    model = Model()
+    res = complex_analysis(cs, compute=['sample'], model=model, options={'num_sample': 5})
+    for k, v in res.complexes.items():
+        assert len(v.sample) == 5
 
 ################################################################################
 
@@ -44,37 +92,93 @@ def test_named():
 ################################################################################
 
 def test_tube_analysis():
-    A = Strand('CTGATCGAT', name='A')
-    B = Strand('GATCGTAGTC', name='B')
+    #DNA
+    m = Model(material = 'dna04')
+    a = m.alphabet()
+    A = Strand('CTGATCGAT', name='A', alphabet = a)
+    B = Strand('GATCGTAGTC', name='B', alphabet = a)
 
     t1 = Tube({A: 1e-8, B: 1e-9}, complexes=SetSpec(3), name='0')
     t2 = Tube({A: 1e-10, B: 1e-9}, complexes=SetSpec(2), name='1')
 
     result = tube_analysis(tubes=[t1, t2],
-        compute=['pairs', 'mfe', 'sample'], model=Model(),
+        compute=['pairs', 'mfe', 'sample'], model=m,
         options={'num_sample': 100})
 
     t1 = Tube({A: 1e-8, B: 1e-8}, complexes=SetSpec(2), name='t1')
-    result = complex_analysis(t1 + t2, compute=['pairs', 'mfe'], model=Model())
+    result = complex_analysis(t1 + t2, compute=['pairs', 'mfe'], model=m)
     result[Complex([A])] # --> ComplexResult
 
     t1_result = complex_concentrations(t1, result, concentrations={A: 1e-8, B: 1e-9}) # use manually specified concentrations if desired
     t2_result = complex_concentrations(t2, result) # use concentration from t2
 
-    print(t1_result) # result concentrations
+    _ = str(t1_result) # result concentrations
+
+    #RNA
+    m = Model()
+    a = m.alphabet()
+    A = Strand('CTGATCGAT', name='A', alphabet = a)
+    B = Strand('GATCGTAGTC', name='B', alphabet = a)
+    
+    t1 = Tube({A: 1e-8, B: 1e-9}, complexes=SetSpec(3), name='0')
+    t2 = Tube({A: 1e-10, B: 1e-9}, complexes=SetSpec(2), name='1')
+
+    result = tube_analysis(tubes=[t1, t2],
+        compute=['pairs', 'mfe', 'sample'], model=m,
+        options={'num_sample': 100})
+
+    t1 = Tube({A: 1e-8, B: 1e-8}, complexes=SetSpec(2), name='t1')
+    result = complex_analysis(t1 + t2, compute=['pairs', 'mfe'], model=m)
+    result[Complex([A])] # --> ComplexResult
+
+    t1_result = complex_concentrations(t1, result, concentrations={A: 1e-8, B: 1e-9}) # use manually specified concentrations if desired
+    t2_result = complex_concentrations(t2, result) # use concentration from t2
+
+    _ = str(t1_result) # result concentrations
 
 ################################################################################
 
 def test_tube_analysis_4():
-    a = Strand('CAGTCGATC', name='a')
-    b = Strand('ATCGACGTA', name='b')
+    #DNA
+    m = Model(material = 'dna04')
+    alpha = m.alphabet()
+    a = Strand('CAGTCGATC', name='a', alphabet = alpha)
+    b = Strand('ATCGACGTA', name='b', alphabet = alpha)
     c = Complex([a, b])
 
     t1 = Tube({a: 1e-6, b: 1e-9}, complexes=SetSpec(include=[c]), name='t1')
     t2 = Tube({a: 1e-8, b: 1e-9}, complexes=SetSpec(include=[c]), name='t2')
 
     result = tube_analysis([t1, t2], compute=['pairs', 'mfe', 'sample', 'subopt'],
-        options={'num_sample': 2, 'energy_gap': 0.5}, model=Model())
+        options={'num_sample': 2, 'energy_gap': 0.5}, model=m)
+    s = str(result)
+    s = result._repr_html_()
+
+    result[t1] # --> TubeResult
+
+    result[t1].complex_concentrations # --> [1.5e-10]
+    result[t1].ensemble_pair_fractions # --> [[1.0, 0.0], [0.0, 1.0]]
+
+    result[c]
+    # pfunc for complex c
+    result[c].pfunc
+    # mfe for complex c
+    list(result[c].mfe)
+    # ppairs matrix for complex c
+    result[c].pairs
+
+    #RNA
+    m = Model()
+    alpha = m.alphabet()
+    a = Strand('CAGTCGATC', name='a', alphabet = alpha)
+    b = Strand('ATCGACGTA', name='b', alphabet = alpha)
+    c = Complex([a, b])
+
+    t1 = Tube({a: 1e-6, b: 1e-9}, complexes=SetSpec(include=[c]), name='t1')
+    t2 = Tube({a: 1e-8, b: 1e-9}, complexes=SetSpec(include=[c]), name='t2')
+
+    result = tube_analysis([t1, t2], compute=['pairs', 'mfe', 'sample', 'subopt'],
+        options={'num_sample': 2, 'energy_gap': 0.5}, model=m)
     s = str(result)
     s = result._repr_html_()
 
@@ -94,58 +198,78 @@ def test_tube_analysis_4():
 ################################################################################
 
 def test_partition_function():
-    a = analysis.Specification(model=Model(ensemble='some-nupack3'))
-    s = RawComplex('A100')
-    a.pfunc(s)
-    v = a.compute()[s]
+    pf, fe = pfunc('A100', model=Model(ensemble='some-nupack3'))
 
-    assert v.pfunc == 1
-    assert v.free_energy == 0
+    assert pf == 1
+    assert fe == 0
+
+    #DNA
+    m = Model(material = 'dna04')
+    pf, fe = pfunc('dA100', model=m)
+    assert pf == 1
+    assert fe == 0
+    #RNA
+    m = Model()
+    pf, fe = pfunc('rA100', model=m)
+    assert pf == 1
+    assert fe == 0
+
+
+################################################################################
+
+def test_mfe():
+    #DNA
+    m = Model(material = 'dna04')
+    mf = mfe('dA100', model=m)
+    assert mf[0].energy == 0
+    assert mf[0].structure == Structure('.' * 100)
+    #RNA
+    m = Model()
+    mf = mfe('rA100', model=m)
+    assert mf[0].energy == 0
+    assert mf[0].structure == Structure('.' * 100)
+
+################################################################################
+
+def test_ensemble_size():
+    assert ensemble_size('GAAAC', model=Model()) == 2
+    assert ensemble_size('GAAA', model=Model()) == 1
 
 ################################################################################
 
 def test_impossible_complex():
-    strands = RawComplex(['A', 'A'])
-    a = analysis.Specification(model=Model(ensemble='some-nupack3'))
-    a.pfunc(strands)
-    a.sample(strands, number=10)
-    a.mfe(strands)
-    a.pairs(strands)
-    v = a.compute()[strands]
+    strands = 'A+A'
+    model = Model(ensemble='some-nupack3')
+    pf, fe = pfunc(strands, model=model)
+    samples = sample(strands, model=model, num_sample=10)
+    mfes = mfe(strands, model=model)
+    subopts = subopt(strands, energy_gap=2, model=model)
+    ps = pairs(strands, model=model)
 
-    assert v.pfunc == 0
-    assert v.free_energy == np.inf
-    assert np.all(v.pairs.to_array() == 0)
-    assert len(v.mfe) == 0
-    assert len(v.subopt) == 0
-    assert len(v.sample) == 10
-    for s in v.sample:
-        assert str(s) == '.+.'
-    assert v.structure_mfe() == np.inf
-
-################################################################################
-
-def test_matrices():
-    a = analysis.Specification(model=Model(ensemble='some-nupack3'))
-    s = RawComplex(['AAAAA'])
-    a.pfunc(s, matrices=True)
-    v = a.compute()[s]
-    assert v.pfunc == 1
-    assert v.pf_matrices['B'].sum() == 0
+    assert pf == 0
+    assert fe == np.inf
+    assert np.all(ps.to_array() == np.eye(2))
+    assert len(mfes) == 0
+    assert len(subopts) == 0
+    assert len(samples) == 10
 
 ################################################################################
 
 def test_overflow():
-    s = RawComplex(['C300G300'])
-    a = analysis.Specification(model=Model(ensemble='some-nupack3', material='rna95-nupack3'))
-    a.pfunc(s)
-    v = a.compute()[s]
-    assert abs(float(v.pfunc.ln()) - 1393.4600830078125) < 0.01
+    model = Model(ensemble='some-nupack3', material='rna95-nupack3')
+    pf, _ = pfunc('C300G300', model=model)
+    assert abs(float(pf.ln()) - 1393.4600830078125) < 0.01
 
-    a.pairs(s)
-    v = a.compute()[s]
-    assert abs(v.pairs.to_array().sum(0) - 1).max() < 0.01
-    assert abs(v.pairs.to_sparse().sum(0) - 1).max() < 0.01
+    P = pairs('C300G300', model=model)
+    assert abs(P.to_array().sum(0) - 1).max() < 0.01
+    assert abs(P.to_sparse().sum(0) - 1).max() < 0.01
 
 ################################################################################
+
+def test_unpaired():
+    t = Tube({Strand('AAAA', name='A'): 1e-8}, name='t')
+    res = tube_analysis([t], model=Model()).tubes[t]
+    assert res.fraction_bases_unpaired is None
+    res = tube_analysis([t], model=Model(), compute=['pairs']).tubes[t]
+    assert res.fraction_bases_unpaired == 1.0
 

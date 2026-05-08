@@ -1,7 +1,9 @@
 #pragma once
-#include <vector>
-#include <boost/container/small_vector.hpp>
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 #include <boost/container/static_vector.hpp>
+#include <boost/container/small_vector.hpp>
+#pragma clang diagnostic pop
 
 #include "../reflect/Memory.h"
 #include "../reflect/Print.h"
@@ -12,12 +14,8 @@ namespace nupack {
 
 /******************************************************************************************/
 
-template <class T, class Alloc=std::allocator<T>> using vec = std::vector<T, Alloc>;
-template <class T, std::size_t s=16> using small_vec = boost::container::small_vector<T, s>;
-template <class T, std::size_t s> using static_vec = boost::container::static_vector<T, s>;
-
-//template <class T> using default_vec = if_t<sizeof(T) < 64, boost::container::small_vector<T, 16>, std::vector<T>>;
-template <class T> using default_vec = boost::container::small_vector<T, 16>;
+template <class T, std::size_t s> 
+using static_vec = boost::container::static_vector<T, s>;
 
 NUPACK_DEFINE_VARIADIC(is_vec, std::vector, class);
 NUPACK_DEFINE_VARIADIC(is_small_vec, boost::container::small_vector, class, std::size_t, class);
@@ -34,7 +32,7 @@ small_vec<value_type_of<V>, N> as_small_vec(V const &v) {return {begin_of(v), en
 /******************************************************************************************/
 
 template <class T>
-struct hash<T, void_if<(has_hash<value_type_of<T>>) && (is_vec<T> || is_small_vec<T> || is_static_vec<T>)>> : RangeHash<T> {};
+struct hash<T, void_if<(!has_std_hash<T>) && (has_hash<value_type_of<T>>) && (is_vec<T> || is_small_vec<T> || is_static_vec<T>)>> : RangeHash<T> {};
 
 /******************************************************************************************/
 

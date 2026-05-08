@@ -1,43 +1,72 @@
-vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
-
-set(PIXMAN_VERSION 0.38.4)
-vcpkg_download_distfile(ARCHIVE
-    URLS "https://www.cairographics.org/releases/pixman-${PIXMAN_VERSION}.tar.gz"
-    FILENAME "pixman-${PIXMAN_VERSION}.tar.gz"
-    SHA512 b66dc23c0bc7327cb90085cbc14ccf96ad58001a927f23af24e0258ca13f32d4255535862f1efcf00e9e723410aa9f51edf26fb01c8cde49379d1225acf7b5af
-)
-vcpkg_extract_source_archive_ex(
+vcpkg_from_gitlab(
     OUT_SOURCE_PATH SOURCE_PATH
-    ARCHIVE ${ARCHIVE}
-    REF ${PIXMAN_VERSION}
+    GITLAB_URL https://gitlab.freedesktop.org
+    REPO pixman/pixman
+    REF "pixman-${VERSION}"
+    SHA512 a878d866fbd4d609fabac6a5acac4d0a5ffd0226d926c09d3557261b770f1ad85b2f2d90a48b7621ad20654e52ecccbca9f1a57a36bd5e58ecbe59cca9e3f25d
+    PATCHES
+        no-host-cpu-checks.patch
+        missing_intrin_include.patch
 )
 
-file(COPY ${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt DESTINATION ${SOURCE_PATH}/pixman)
+set(x86_architectures x86 x64)
+if(VCPKG_TARGET_ARCHITECTURE IN_LIST x86_architectures AND NOT VCPKG_TARGET_IS_UWP)
+    list(APPEND OPTIONS
+        -Dmmx=enabled
+        -Dsse2=enabled
+        -Dssse3=enabled
+    )
+else()
+    list(APPEND OPTIONS
+        -Dmmx=disabled
+        -Dsse2=disabled
+        -Dssse3=disabled
+    )
+    if(VCPKG_TARGET_IS_ANDROID)
+        vcpkg_cmake_get_vars(cmake_vars_file)
+        include("${cmake_vars_file}")
+        find_path(cpu_features_dir
+            NAMES cpu-features.c
+            PATHS "${VCPKG_DETECTED_CMAKE_ANDROID_NDK}"
+            PATH_SUFFIXES
+                "sources/android/cpufeatures" # NDK r27c
+            NO_DEFAULT_PATH
+        )
+        if(VCPKG_DETECTED_CMAKE_ANDROID_ARM_NEON AND cpu_features_dir)
+            list(APPEND OPTIONS
+                "-Dcpu-features-path=${cpu_features_dir}"
+            )
+        endif()
+    endif()
+    if(VCPKG_TARGET_IS_WINDOWS)
+        # -Darm-simd=enabled does not work with arm64-windows
+        list(APPEND OPTIONS
+            -Da64-neon=disabled
+            -Darm-simd=disabled
+            -Dneon=disabled
+        )
+    endif()
+endif()
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}/pixman
-    PREFER_NINJA
+vcpkg_configure_meson(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS ${OPTIONS}
+        -Ddemos=disabled
+        -Dgtk=disabled
+        -Dlibpng=enabled
+        -Dtests=disabled
 )
+vcpkg_install_meson()
+vcpkg_fixup_pkgconfig()
 
-vcpkg_install_cmake()
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
 
-vcpkg_fixup_cmake_targets(CONFIG_PATH share/unofficial-pixman TARGET_PATH share/unofficial-pixman)
-
-# Copy the appropriate header files.
-file(COPY
-    "${SOURCE_PATH}/pixman/pixman.h"
-    "${SOURCE_PATH}/pixman/pixman-accessor.h"
-    "${SOURCE_PATH}/pixman/pixman-combine32.h"
-    "${SOURCE_PATH}/pixman/pixman-compiler.h"
-    "${SOURCE_PATH}/pixman/pixman-edge-imp.h"
-    "${SOURCE_PATH}/pixman/pixman-inlines.h"
-    "${SOURCE_PATH}/pixman/pixman-private.h"
-    "${SOURCE_PATH}/pixman/pixman-version.h"
-    DESTINATION ${CURRENT_PACKAGES_DIR}/include
-)
-
-# Handle copyright
-file(COPY ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/pixman)
-file(RENAME ${CURRENT_PACKAGES_DIR}/share/pixman/COPYING ${CURRENT_PACKAGES_DIR}/share/pixman/copyright)
-
-vcpkg_copy_pdbs()
+set(licenses "${SOURCE_PATH}/COPYING")
+if(VCPKG_DETECTED_CMAKE_ANDROID_ARM_NEON AND cpu_features_dir)
+    file(READ "${cpu_features_dir}/cpu-features.c" cpu_features_c)
+    string(REGEX REPLACE "[*]/.*" "*/\n" cpu_features_license "${cpu_features_c}")
+    file(WRITE "${CURRENT_PACKAGES_DIR}/${TARGET_TRIPLET}-rel/cpu-features (BSD-2-Clause)" "${cpu_features_license}")
+    list(APPEND licenses "${CURRENT_PACKAGES_DIR}/${TARGET_TRIPLET}-rel/cpu-features (BSD-2-Clause)")
+endif()
+vcpkg_install_copyright(FILE_LIST ${licenses})

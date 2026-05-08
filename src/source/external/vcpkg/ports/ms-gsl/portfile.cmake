@@ -2,26 +2,24 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO Microsoft/GSL
-    REF 0f6dbc9e2915ef5c16830f3fa3565738de2a9230
-    SHA512 f72d7d9a18b8055401feb99d99f17c70c0c2015b1a2112ae13fedd27949ff7f9b30718b6afd0b5730ed5573390cb1cc987cd45b7e7fbb92f4134f11d1637ddb7
-    HEAD_REF master
+    REF v${VERSION}
+    SHA512 f325c70fb02ead99c5be333baa0793573dd091fe111b20ff13b2d524b71f1357bbc365a66684a8c791796095284cc6a968fc3c7284a0b3c0646a38a61e46792c
+    HEAD_REF main
 )
 
-vcpkg_configure_cmake(
+vcpkg_cmake_configure(
     SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
     OPTIONS
         -DGSL_TEST=OFF
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
 
-vcpkg_fixup_cmake_targets(
+vcpkg_cmake_config_fixup(
+    PACKAGE_NAME Microsoft.GSL
     CONFIG_PATH share/cmake/Microsoft.GSL
-    TARGET_PATH share/Microsoft.GSL
 )
 
 file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug")
 
-# Handle copyright
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

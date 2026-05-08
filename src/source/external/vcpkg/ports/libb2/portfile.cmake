@@ -1,5 +1,3 @@
-vcpkg_fail_port_install(ON_TARGET "WINDOWS")
-
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO BLAKE2/libb2
@@ -8,22 +6,17 @@ vcpkg_from_github(
     HEAD_REF master
 )
 
-set(OPTIONS)
-if(CMAKE_HOST_WIN32)
-    set(OPTIONS --disable-native) # requires cpuid
-endif()
-
-vcpkg_configure_make(
-    AUTOCONFIG
-    SOURCE_PATH ${SOURCE_PATH}
-    OPTIONS ${OPTIONS}
+vcpkg_make_configure(
+    AUTORECONF
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        --disable-native            # toolchain may supply -march=native
+        ax_cv_check_cflags___O3=no  # vcpkg provides actual flag
 )
-vcpkg_install_make()
+vcpkg_make_install()
 vcpkg_fixup_pkgconfig()
-
-
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
-
 vcpkg_copy_pdbs()
 
-file(INSTALL ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/COPYING")

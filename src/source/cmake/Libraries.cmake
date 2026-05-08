@@ -1,13 +1,66 @@
 ################################################################################
 
+find_package(Taskflow CONFIG REQUIRED)
+
+################################################################################
+
+find_package(yaml-cpp CONFIG REQUIRED)
+
+################################################################################
+
+add_library(nupack-lapack INTERFACE)
 find_package(TBB CONFIG REQUIRED)
+
+################################################################################
+
+add_library(nupack-simd INTERFACE)
+if(NUPACK_SIMD)
+    message("-- Enabling SIMD (set NUPACK_SIMD=OFF to disable)")
+    find_package(libsimdpp CONFIG REQUIRED)
+    target_include_directories(nupack-simd INTERFACE ${LIBSIMDPP_INCLUDE_DIRS})
+    set(SIMDPP_ARM_NEON_CXX_FLAGS "" CACHE STRING "disable mfpu=neon option")
+    set(SIMDPP_ARM_NEON_FLT_SP_CXX_FLAGS "" CACHE STRING "disable mfpu=neon option")
+    simdpp_get_runnable_archs(simd-archs-0)
+    string(REPLACE "," ";" simd-archs "${simd-archs-0}")
+
+    list(REMOVE_ITEM simd-archs NONE_NULL)
+
+    if(APPLE)
+	    if("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "x86_64")
+	        if(DISABLE_MAC_AVX)
+                message("-- Disable AVX instructions for x86 Mac")
+                list(REMOVE_ITEM simd-archs X86_AVX)
+            endif()
+        endif()
+    endif()
+
+    set(NUPACK_SIMD_SETS "${simd-archs}" CACHE STRING "SIMD architectures to use")
+    message("-- Detected SIMD architectures from ${LIBSIMDPP_INCLUDE_DIRS}: ${simd-archs}")
+    message("-- Using SIMD architectures ${NUPACK_SIMD_SETS}")
+
+    foreach(X ${NUPACK_SIMD_SETS})
+	    simdpp_get_arch_info(flags defines unique_id ${X})
+        string(REPLACE "-mfpu=neon" "" flags ${flags})
+	    message("-- Adding SIMD options:${flags}")
+	    string(REPLACE " " ";" flag_list ${flags})
+	    target_compile_options(nupack-simd INTERFACE ${flag_list})
+    endforeach()
+
+else()
+    message("-- Skipping SIMD detection")
+endif()
 
 ################################################################################
 
 add_library(nupack_lapack INTERFACE)
 
+if(NOT BLAS_LIBRARIES)
+    find_package(BLAS)
+    message("-- Using BLAS from ${BLAS_LIBRARIES}")
+endif()
+
 if(NOT LAPACK_LIBRARIES)
-    find_package(LAPACK CONFIG)
+    find_package(LAPACK)
 endif()
 
 if(NOT LAPACK_LIBRARIES)
@@ -16,7 +69,7 @@ endif()
 
 if(LAPACK_LIBRARIES)
     message("-- Using LAPACK from ${LAPACK_LIBRARIES}")
-    target_link_libraries(nupack_lapack INTERFACE ${LAPACK_LIBRARIES})
+    target_link_libraries(nupack_lapack INTERFACE ${LAPACK_LIBRARIES} ${BLAS_LIBRARIES})
 else()
     message(FATAL_ERROR "Could not find LAPACK")
 endif()
@@ -29,10 +82,25 @@ target_link_libraries(json INTERFACE nlohmann_json nlohmann_json::nlohmann_json)
 
 ################################################################################
 
-add_library(armadillo INTERFACE)
-find_package(Armadillo CONFIG REQUIRED)
-target_link_libraries(armadillo INTERFACE ${ARMADILLO_LIBRARIES})
-target_compile_definitions(armadillo INTERFACE ARMA_DONT_USE_WRAPPER=1 ARMA_USE_LAPACK=1)
+find_package(magic_enum CONFIG REQUIRED)
+
+################################################################################
+
+add_library(nupack-armadillo INTERFACE)
+if(NUPACK_EXTERNAL_ARMADILLO)
+    target_link_libraries(nupack-armadillo INTERFACE ${ARMADILLO_LIBRARIES})
+    target_include_directories(nupack-armadillo INTERFACE ${ARMADILLO_INCLUDE})
+    target_compile_definitions(nupack-armadillo INTERFACE ARMA_DONT_USE_FORTRAN_HIDDEN_ARGS)
+else()
+    find_package(Armadillo CONFIG REQUIRED)
+    target_link_libraries(nupack-armadillo INTERFACE ${ARMADILLO_LIBRARIES})
+endif()
+message("-- Using armadillo from ${ARMADILLO_LIBRARIES}")
+target_compile_definitions(nupack-armadillo INTERFACE ARMA_DONT_USE_EXTERN_RNG) # Bug on Mac for random number generation
+if(${CMAKE_BUILD_TYPE} STREQUAL "Release")
+    target_compile_definitions(nupack-armadillo INTERFACE ARMA_NO_DEBUG)
+endif()
+# target_compile_definitions(armadillo INTERFACE ARMA_DONT_USE_WRAPPER=1 ARMA_USE_LAPACK=1 ARMA_DONT_USE_FORTRAN_HIDDEN_ARGS)
 
 ################################################################################
 
@@ -76,8 +144,9 @@ endif()
 
 ################################################################################
 
-add_library(backward INTERFACE)
-target_include_directories(backward INTERFACE ${CMAKE_CURRENT_SOURCE_DIR}/external/backward-cpp)
+add_library(nupack-backward INTERFACE)
+find_package(Backward CONFIG REQUIRED)
+target_link_libraries(nupack-backward INTERFACE Backward::Backward)
 
 ################################################################################
 
@@ -106,14 +175,6 @@ target_include_directories(nupack-boost INTERFACE
     ${BOOST_ITERATOR_INCLUDE_DIRS}
     ${BOOST_ALIGN_INCLUDE_DIRS}
     ${BOOST_SORT_INCLUDE_DIRS}
-)
-
-################################################################################
-
-add_library(boostsimd INTERFACE)
-target_include_directories(boostsimd INTERFACE
-    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/external/boost-simd/include>
-    $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
 ################################################################################

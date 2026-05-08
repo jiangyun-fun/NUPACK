@@ -1,26 +1,35 @@
-set(OATPP_VERSION "1.2.0")
-
-vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
+if(VCPKG_TARGET_IS_WINDOWS)
+    vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
+endif()
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO oatpp/oatpp-mbedtls
-    REF b415a88d652cbb1f1cbbd9093345c961cbac4ec1 # 1.2.0
-    SHA512 08864932b20bc9c569eed052137d0eacafb2acd975d0ebacaa7430ae23a6e9ef7c4afb45d88178531a1f0af1a1d488087e9bc26a866f9a656c695d55b0c85ad3
+    REF ${VERSION}
+    SHA512 3eea805f2a02110daec25b7455543c59d8e72acd37d412fa98cb1c90f58e4edcd9cc62c16331efcca36a524834fa0f314f2f69a7a4d0d1108a758f811a68e021
     HEAD_REF master
-    PATCHES find-mbedtls.patch
+    PATCHES
+        find-mbedtls.patch
+        mbedtls-3.patch
 )
 
-vcpkg_configure_cmake(
+vcpkg_cmake_configure(
     SOURCE_PATH "${SOURCE_PATH}"
-    PREFER_NINJA
     OPTIONS
         "-DOATPP_BUILD_TESTS:BOOL=OFF"   
 )
 
-vcpkg_install_cmake()
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/oatpp-mbedtls-${OATPP_VERSION})
+vcpkg_cmake_install()
+vcpkg_cmake_config_fixup(CONFIG_PATH "lib/cmake/oatpp-mbedtls-${VERSION}")
 vcpkg_copy_pdbs()
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+if(VCPKG_LIBRARY_LINKAGE STREQUAL "static")
+    file(READ "${CURRENT_PACKAGES_DIR}/share/oatpp-mbedtls/oatpp-mbedtlsConfig.cmake" cmake_config)
+    file(WRITE "${CURRENT_PACKAGES_DIR}/share/oatpp-mbedtls/oatpp-mbedtlsConfig.cmake" "
+include(CMakeFindDependencyMacro)
+find_dependency(oatpp CONFIG)
+${cmake_config}")
+endif()
+
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

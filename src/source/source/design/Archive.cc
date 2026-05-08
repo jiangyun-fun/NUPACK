@@ -2,14 +2,14 @@
 #include <nupack/design/Archive.h>
 
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 
-void Archive::reevaluate(Local const &env, Designer &designer, uint depth, EnsemblePartition const &part) {
+void Archive::reevaluate(Env const &env, Designer &designer, uint depth, EnsemblePartition const &part) {
     for (auto &res : results) {
         res = designer.reevaluate_objectives(env, res, depth, part);
         /* save full evaluation while grabbing elements from cache is cheap */
-        if (depth == 0 && part.all_active()) res.full_evaluation(designer);
+        if (depth == 0 && part.all_active()) res.full_evaluation(env, designer);
     }
 }
 
@@ -53,7 +53,7 @@ uint Archive::remove_dominated_by(Result const &res) {
  * @return true
  * @return false
  */
-uint Archive::update_estimates(Local const &env, Designer &designer, uint depth, EnsemblePartition const &part) {
+uint Archive::update_estimates(Env const &env, Designer &designer, uint depth, EnsemblePartition const &part) {
     reevaluate(env, designer, depth, part);
     return remove_dominated();
 }
@@ -159,4 +159,4 @@ real Archive::distance(Result const &res1, Result const &res2) const {
 }
 
 
-}}
+}

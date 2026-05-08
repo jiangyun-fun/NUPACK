@@ -10,6 +10,8 @@
 #include "../algorithms/Tuple.h"
 #include "../algorithms/Operators.h"
 
+#include <algorithm>
+#include <stdexcept>
 #include <vector>
 
 namespace nupack {
@@ -17,9 +19,11 @@ namespace nupack {
 /******************************************************************************************/
 
 /// Call a function until it returns true
-template <class F> void while_false(F &&f) {while (!f()) {};}
+template <class F>
+void while_false(F &&f) {while (!f()) {};}
 /// Call a function until it returns false
-template <class F> void while_true(F &&f) {while (f()) {};}
+template <class F>
+void while_true(F &&f) {while (f()) {};}
 
 /******************************************************************************************/
 
@@ -98,24 +102,53 @@ void for_each_arg(F &&f, Args &&...args) {
 
 /******************************************************************************************/
 
-/// Call a function with all pairs (i, j) in a range where j >= i+o
-template <class B, class E, class F> void for_ordered_pairs(B b, E e, int o, F &&f) {
-    for (auto i = b; i < e; ++i) for (auto j = i + o; j < e; ++j) f(i, j);}
-
-/// Call a function with all pairs (i, j) in a range where j > i
-template <class B, class E, class F> void for_ordered_pairs(B b, E e, F &&f) {
-    for (auto i = b; i < e; ++i) for (auto j = i + 1; j < e; ++j) f(i, j);}
+/// Call a function with all pairs (i, j) in a range
+template <class B, class E, class F>
+void for_each_pair(B b, E e, F &&f) {
+    for (auto i = b; i != e; ++i) for (auto j = b; j != e; ++j) f(i, j);
+}
 
 /******************************************************************************************/
 
-/// Call a function with all pairs (i, j) in a range
-template <class B, class E, class F> void for_pairs(B b, E e, F &&f) {
-    for (auto i = b; i != e; ++i) for (auto j = b; j != e; ++j) f(i, j);}
+/// for each place an element can go into a container
+template <class V, class T, class F>
+void for_each_splice(bool first, V &v, T &&t, F &&f) {
+    v.insert(begin_of(v), fw<T>(t));
+    auto a = begin_of(v), b = std::next(a);
+    if (first || b == end_of(v)) f();
+    for (; b != end_of(v); a = b, ++b) {
+        swap(*a, *b);
+        f();
+    }
+    v.pop_back();
+}
+
+/******************************************************************************************/
+
+template <class B, class E, class V, class F>
+void for_choose_any(bool first, B const b, E const e, V &v, F &&f) {
+    auto c = std::next(b);
+    if (c == e) {
+        for_each_splice(first, v, *b, [&] {f(v);});
+        if (first || len(v)) f(v); // not sure if worth adding argument for empty cases
+    } else {
+        for_each_splice(first, v, *b, [&] {for_choose_any(first, c, e, v, f);});
+        for_choose_any(first, c, e, v, f);
+    }
+}
+
+template <class T, class F>
+void for_choose_any(bool first, T const &t, F &&f) {
+    std::vector<value_type_of<T>> v;
+    if (!len(t)) {f(v); return;}
+    v.reserve(len(t));
+    for_choose_any(first, begin_of(t), end_of(t), v, f);
+}
 
 /******************************************************************************************/
 
 template <class T1, class T2, class Integer, class F>
-void for_chunks(T1 i, T2 j, Integer n, F const &f) {
+void for_each_chunk(T1 i, T2 j, Integer n, F const &f) {
     Integer space = Integer(j - i) / n;
     for (auto k = 0; k < n - 1; ++k)
         f(k, std::make_pair(i + k * space, i + k * space + space));
@@ -124,49 +157,74 @@ void for_chunks(T1 i, T2 j, Integer n, F const &f) {
 
 /******************************************************************************************/
 
-template <class T1, class T2, class T3, class T4, class Integer, class F>
-void for_blocks(T1 i1, T2 i2, Integer n1, T3 j1, T4 j2, Integer n2, F const &f) {
-    for_chunks(i1, i2, n1, [&](auto i, auto pi){
-        for_chunks(j1, j2, n2, [&](auto j, auto pj){f(i, pi, j, pj);});
+/// for each partitioning of a group of elements -- inner loops
+template <class It, class V, class F>
+void for_each_partition(bool first, std::size_t n, It const m, It const e, V &v, F &&f) {
+    if (m == e) {f(v); return;}
+    for (auto &i : v) for_each_splice(first, i, *m, [&] {
+        for_each_partition(first, n, std::next(m), e, v, f);
     });
+    v.emplace_back();
+    v.back().reserve(n); // prevent any reallocation so iterators don't go bad
+    v.back().emplace_back(*m);
+    for_each_partition(first, n, std::next(m), e, v, f);
+    v.pop_back(); // or *b as separate complex
+}
+
+/// for each partitioning of a group of elements
+template <class T, class F>
+void for_each_partition(bool first, T const &t, F &&f) {
+    std::vector<std::vector<value_type_of<T>>> v;
+    v.reserve(len(t));
+    for_each_partition(first, 2*len(t), begin_of(t), end_of(t), v, f);
 }
 
 /******************************************************************************************/
 
-/// Call a function with each permutation of a sequence (from iterators)
-template <class It, class F>
-void for_permutations(It b, It e, F &&f) {
-    std::sort(b, e); f(); if (b == e) return;
-    while (std::next_permutation(b, e)) f();
+/// Call a function with all pairs (i, j) in a range where j >= i+o
+template <class B, class E, class F>
+void for_each_ordered_pair(B b, E e, int o, F &&f) {
+    for (auto i = b; i < e; ++i) for (auto j = i + o; j < e; ++j) f(i, j);
 }
 
-/// Call a function with each permutation of a sequence (from view)
-template <class V, class F>
-void for_permutations(V v, F &&f) {for_permutations(begin_of(v), end_of(v), [&]{f(v);});}
+/// Call a function with all pairs (i, j) in a range where j > i
+template <class B, class E, class F>
+void for_each_ordered_pair(B b, E e, F &&f) {
+    for (auto i = b; i < e; ++i) for (auto j = i + 1; j < e; ++j) f(i, j);
+}
 
-/// Compute all necklaces of a given size from n unique elements
-/// The input vector v should be of the desired size and filled with 0s in general
-template <class V, class F=NoOp>
-std::size_t compute_necklaces(V &&v, uint const n_elements, F &&f={}) {
-    uint const size = std::size(v);
-    if (!size || !n_elements) return 0;
+/******************************************************************************************/
 
-    std::size_t n_necklaces = 1;
-    f(static_cast<V const &>(v));
-
-    auto find = [&] { // find the last element which is not n - 1
-        uint i = 0;
-        for (; i != size; ++i) if (v[size - 1 - i] + 1 != n_elements) break;
-        return i;
-    };
-
-    for (uint i = find(); i != size; i = find()) {
-        ++v[size - 1 - i];
-        std::copy(std::begin(v), std::begin(v) + i, std::end(v) - i);
-
-        if (size % (size - i) == 0) {++n_necklaces; f(static_cast<V const &>(v));}
+template <class F, class Predicate>
+void for_each_labeling(vec<std::size_t> &v, std::size_t const next, std::size_t const n, F &&f, Predicate const &p) {
+    auto const l = std::size(v);
+    if (l == n) {
+        f(v, next);
+    } else {
+        v.emplace_back(next);
+        for_each_labeling(v, next+1, n, f, p); // Put into its own partition
+        for (std::size_t i = 0; i != l; ++i) {
+            if (p(v, i, l)) {
+                v.back() = v[i];
+                for_each_labeling(v, next, n, f, p);
+            }
+        }
+        v.pop_back();
     }
-    return n_necklaces;
+}
+
+template <class F, class Predicate=AlwaysTrue>
+void for_each_labeling(std::size_t n, F &&f, Predicate const &p={}) {
+    vec<std::size_t> index;
+    index.reserve(n);
+    for_each_labeling(index, 0, n, f, p);
+}
+
+template <class F>
+void for_each_noncrossing_labeling(std::size_t n, F &&f) {
+    return for_each_labeling(n, fw<F>(f), [](auto const &v, auto i, auto l) {
+        return !std::any_of(v.begin() + i+1, v.begin() + l, [y=v[i]](auto x) {return x <= y;});
+    });
 }
 
 /******************************************************************************************/
@@ -198,6 +256,40 @@ V lowest_rotation(V v) {
 
 /******************************************************************************************/
 
+template<class InputIt, class OutputIt> // from cppreference, no-intrinsic implementation of std::copy
+OutputIt safe_copy(InputIt first, InputIt last, OutputIt d_first) {
+    while (first != last) {*d_first++ = *first++;}
+    return d_first;
+}
+
+/// Compute all necklaces of a given size from n unique elements
+/// The input vector v should be of the desired size and filled with 0s in general
+// Note: this algorithm may be suboptimal actually. Investigate this reference "Generating Bracelets in Constant Amortized Time"
+template <class V, class F=NoOp>
+std::size_t compute_necklaces(V &&v, uint const n_elements, F &&f={}) {
+    uint const size = std::size(v);
+    if (size && !n_elements) return 0;
+
+    std::size_t n_necklaces = 1;
+    f(static_cast<V const &>(v));
+
+    auto find = [&] { // find the last element which is not n - 1
+        uint i = 0;
+        for (; i != size; ++i) if (v[size - 1 - i] + 1 != n_elements) break;
+        return i;
+    };
+
+    for (uint i = find(); i != size; i = find()) {
+        ++v[size - 1 - i];
+        safe_copy(std::begin(v), std::begin(v) + i, std::end(v) - i); // not std::copy. The ranges may overlap!
+
+        if (size % (size - i) == 0) {++n_necklaces; f(static_cast<V const &>(v));}
+    }
+    return n_necklaces;
+}
+
+/******************************************************************************************/
+
 /// Return the rotational symmetry number of a sequence (1 if there is no symmetry)
 template <class V>
 std::size_t rotational_symmetry(V const &v) {
@@ -206,6 +298,35 @@ std::size_t rotational_symmetry(V const &v) {
     for (std::size_t i = 1; i <= n / 2; ++i) if (n % i == 0)
         if (std::equal(b+i, e, b, e-i) && std::equal(b, b+i, e-i, e)) return n / i;
     return 1;
+}
+
+/******************************************************************************************/
+
+template <class V, class F>
+std::size_t for_each_permutation(V v, F &&f) {
+    std::sort(v.begin(), v.end());
+    std::size_t n = 0;
+    do {f(v); ++n;}
+    while (std::next_permutation(v.begin(), v.end()));
+    return n;
+}
+
+/******************************************************************************************/
+
+template <class It, class B, class E, class F>
+void for_each_product(It const it, B const b, E const &e, F &&f) {
+    if (b == e) {
+        f();
+    } else for (auto const &i : *b) {
+        *it = i;
+        for_each_product(std::next(it), std::next(b), e, f);
+    }
+}
+
+template <class X, class V, class F>
+void for_each_product(X &&x, V const &v, F &&f) {
+    if (std::size(x) != std::size(v)) throw std::invalid_argument("for_each_product(): size mismatch");
+    for_each_product(std::begin(x), std::begin(v), std::end(v), [&]{f(x);});
 }
 
 /******************************************************************************************/
@@ -222,83 +343,20 @@ void prime_factorization(std::size_t n, F &&f) {
 
 /******************************************************************************************/
 
-/// iterator product of for_permutations
-template <class B, class E, class F>
-void for_permutations_across(B begin, E end, F &&f) {
-    if (begin == end) {f(); return;}
-    for_permutations(begin_of(*begin), end_of(*begin), [&] {
-        for_permutations_across(begin + 1, end, f);
-    });
-}
-
-/// for each place an element can go into a container
-template <class V, class T, class F>
-void for_splices(bool first, V &v, T &&t, F &&f) {
-    v.insert(begin_of(v), fw<T>(t));
-    auto a = begin_of(v), b = std::next(a);
-    if (first || b == end_of(v)) f();
-    for (; b != end_of(v); a = b, ++b) {
-        swap(*a, *b);
-        f();
-    }
-    v.pop_back();
-}
-
-/// for each partitioning of a group of elements -- inner loops
-template <class It, class V, class F>
-void for_partitions(bool first, std::size_t n, It const m, It const e, V &v, F &&f) {
-    if (m == e) {f(v); return;}
-    for (auto &i : v) for_splices(first, i, *m, [&] {
-        for_partitions(first, n, std::next(m), e, v, f);
-    });
-    v.emplace_back();
-    v.back().reserve(n); // prevent any reallocation so iterators don't go bad
-    v.back().emplace_back(*m);
-    for_partitions(first, n, std::next(m), e, v, f);
-    v.pop_back(); // or *b as separate complex
-}
-
-/// for each partitioning of a group of elements
-template <class T, class F>
-void for_partitions(bool first, T const &t, F &&f) {
-    std::vector<std::vector<value_type_of<T>>> v;
-    v.reserve(len(t));
-    for_partitions(first, 2*len(t), begin_of(t), end_of(t), v, f);
-}
-
-template <class B, class E, class V, class F>
-void for_choose_any(bool first, B const b, E const e, V &v, F &&f) {
-    auto c = std::next(b);
-    if (c == e) {
-        for_splices(first, v, *b, [&] {f(v);});
-        if (first || len(v)) f(v); // not sure if worth adding argument for empty cases
-    } else {
-        for_splices(first, v, *b, [&] {for_choose_any(first, c, e, v, f);});
-        for_choose_any(first, c, e, v, f);
-    }
-}
-
-template <class T, class F>
-void for_choose_any(bool first, T const &t, F &&f) {
-    std::vector<value_type_of<T>> v;
-    if (!len(t)) {f(v); return;}
-    v.reserve(len(t));
-    for_choose_any(first, begin_of(t), end_of(t), v, f);
-}
-
-/******************************************************************************************/
-
 /// Next iterator, except .end_of()-1 returns begin_of()
-template <class V, class It> It cyclic_next(V const &v, It const &it) {
+template <class V, class It>
+It cyclic_next(V const &v, It const &it) {
     auto const up = std::next(it); return (up == end_of(v)) ? begin_of(v) : up;
 }
 
 /// Previous iterator, except .begin_of() returns .end_of()[-1]
-template <class V, class It> It cyclic_prev(V const &v, It const &it) {
+template <class V, class It>
+It cyclic_prev(V const &v, It const &it) {
     return std::prev(it == begin_of(v) ? end_of(v) : it);
 }
 
-template <class V, class F> void for_circularly_adjacent(V &&v, F &&f) {
+template <class V, class F>
+void for_circularly_adjacent(V &&v, F &&f) {
     auto x = begin_of(v);
     if (x == end_of(v)) return;
     auto y = std::next(x);
@@ -316,20 +374,26 @@ NUPACK_DETECT(has_back, decltype(std::declval<T>().back()));
 NUPACK_DETECT(has_front, decltype(std::declval<T>().front()));
 
 /// First element in a container
-template <class V, NUPACK_IF(!has_front<V &&>)> decltype(auto) front(V &&v) {return *begin_of(fw<V>(v));}
+template <class V, NUPACK_IF(!has_front<V &&>)>
+decltype(auto) front(V &&v) {return *begin_of(fw<V>(v));}
 /// Last element in a container
-template <class V, NUPACK_IF(!has_back<V &&>)> decltype(auto) back(V &&v) {return *std::prev(end_of(fw<V>(v)));}
+template <class V, NUPACK_IF(!has_back<V &&>)>
+decltype(auto) back(V &&v) {return *std::prev(end_of(fw<V>(v)));}
 /// First element in a container
-template <class V> auto front(V &&v) -> decltype(fw<V>(v).front()) {return fw<V>(v).front();}
+template <class V> auto front(V &&v) ->
+decltype(fw<V>(v).front()) {return fw<V>(v).front();}
 /// Last element in a container
-template <class V> auto back(V &&v) -> decltype(fw<V>(v).back()) {return fw<V>(v).back();}
+template <class V> auto back(V &&v) ->
+decltype(fw<V>(v).back()) {return fw<V>(v).back();}
 
+/// Element from indexing a container backwards
+template <class V, class N>
+decltype(auto) front(V &&v, N &&n) {return *std::next(begin_of(fw<V>(v)), n);}
 /// Element from indexing a container forwards
-template <class V, class N> decltype(auto) front(V &&v, N &&n) {return *std::next(begin_of(fw<V>(v)), n);}
-/// Iterator from indexing a container forwards
-template <class V, class N> decltype(auto) next(V &&v, N &&n) {return std::next(begin_of(fw<V>(v)), n);}
-/// Element from indexing a container backwards. 0 gives the last element.
 template <class V, class N> decltype(auto) back_index(V &&v, N &&n) {return *std::prev(end_of(fw<V>(v)), n+1);}
+/// Iterator from indexing a container forwards
+template <class V, class N>
+decltype(auto) next(V &&v, N &&n) {return std::next(begin_of(fw<V>(v)), n);}
 
 /******************************************************************************************/
 
@@ -346,15 +410,10 @@ template <class ...Cs> void zip_iterators(Cs &&...cs) {
 
 /******************************************************************************************/
 
-struct ignore {
-    template <class T> constexpr ignore(T const &) {}
-    template <class T> constexpr ignore const & operator=(T const &) const {return *this;}
-};
-
 template <std::size_t ...Is>
 struct arg_t {
     template <class T, class ...Ts>
-    T constexpr operator()(sink_type<ignore, decltype(Is)>..., T &&t, Ts const &...) const {return fw<T>(t);}
+    T constexpr operator()(sink_type<Ignore, decltype(Is)>..., T &&t, Ts const &...) const {return fw<T>(t);}
 };
 
 template <std::size_t ...Is> arg_t<Is...> make_arg_t(indices_t<Is...>);

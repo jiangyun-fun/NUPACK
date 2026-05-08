@@ -1,6 +1,6 @@
 #include <nupack/design/Defect.h>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 Defect::Defect(vec<real> const &defs, real normalization) {
     defect_vec temp;
@@ -61,6 +61,7 @@ Defect Defect::scaled(real weight) const {
  *     index in the structure/pair probabilities matrix
  */
 vec<real> nucleotide_defects(ProbabilityMatrix const &pp, Structure const &s) {
+    NUPACK_REQUIRE(pp.n_rows, ==, len(s), s);
     auto ret = vec<real>(len(s), 0.0);
     for (auto i : indices(s)) ret[i] = 1.0 - pp(i, s[i]);
     return ret;
@@ -77,9 +78,10 @@ vec<real> nucleotide_defects(ProbabilityMatrix const &pp, Structure const &s) {
  * @return vector of defects where the index of the vector is the nucleotide
  *     index in the structure/pair probabilities matrix
  */
-vec<real> nucleotide_defects(Tensor<real, 2> const &pp, Structure const &s) {
+vec<real> nucleotide_defects(Mat<real> const &pp, Structure const &s) {
+    NUPACK_REQUIRE(pp.n_rows, ==, len(s), s);
     auto ret = vec<real>(len(s), 0.0);
-    for (auto i : indices(s)) ret[i] = 1.0 - *pp(i, s[i]);
+    for (auto i : indices(s)) ret[i] = 1.0 - pp(i, s[i]);
     return ret;
 }
 
@@ -139,4 +141,4 @@ vec<uint> Defect::sample_nucleotides(uint num) const {
 // }
 
 
-}}
+}

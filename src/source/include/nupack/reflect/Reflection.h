@@ -3,6 +3,9 @@
 #include "../iteration/Patterns.h"
 #include <array>
 
+#include <boost/preprocessor/stringize.hpp>
+#include <boost/preprocessor/seq/for_each.hpp>
+
 /******************************************************************************************/
 
 namespace nupack {
@@ -16,11 +19,6 @@ NUPACK_DETECT(has_names,      decltype(T::names()));
 NUPACK_DETECT(has_name,       decltype(declref<T const>().name()));
 
 NUPACK_DETECT(is_streamable,  decltype(declref<std::ostream>() << declref<no_ref<T> const>()));
-
-/******************************************************************************************/
-
-#define NUPACK_PUBLIC_IMPL(r, cls, i, elem) doc.method(t, "." BOOST_PP_STRINGIZE(elem), &cls::elem);
-#define NUPACK_PUBLIC(cls, ...) BOOST_PP_SEQ_FOR_EACH_I(NUPACK_PUBLIC_IMPL, cls, BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__))
 
 /******************************************************************************************/
 
@@ -53,43 +51,12 @@ template <class ...Cs> constexpr auto make_members(Cs &&...cs) {
     return std::tuple<remove_rref<decltype(cs)>...>{fw<Cs>(cs)...};
 }
 
-// /// extend_members appends to the members tuple
-// template <class ...Ts> struct extend_members_t {
-//     template <class C, class ...Cs> constexpr auto operator()(C *c, Cs &&...cs) const {
-//         return std::tuple_cat(static_cast<Ts &>(*c).members()..., std::tuple<remove_rref<decltype(cs)>...>{fw<Cs>(cs)...});
-//     }
-// };
-// template <class ...Ts> struct extend_members_t<pack<Ts...>> : extend_members_t<Ts...> {};
-// template <class ...Ts> static constexpr auto extend_members = extend_members_t<Ts...>();
-
 /******************************************************************************************/
 
 /// make_names returns an array of char const *
 template <class ...Cs> constexpr auto make_names(Cs ...cs) {
     return std::array<char const *, sizeof...(Cs)>{{cs...}};
 }
-
-// /// combine_names adds char const *s to the names array
-// template <class A, class B, class ...Cs> constexpr auto combine_names(A const &a, B const &b, Cs const &...cs);
-// template <class A> constexpr auto combine_names(A const &a) {return a;}
-
-// template <class A, class B, std::size_t ...Is, std::size_t ...Js, class ...Cs>
-// constexpr auto combine_names_impl(A const &a, indices_t<Is...>, B const &b, indices_t<Js...>, Cs const &...cs) {
-//     return combine_names(std::array<char const *, sizeof...(Is) + sizeof...(Js)>{{at<Is>(a)..., at<Js>(b)...}}, cs...);
-// }
-// /// combine_names adds char const *s to the names array
-// template <class A, class B, class ...Cs> constexpr auto combine_names(A const &a, B const &b, Cs const &...cs) {
-//     return combine_names_impl(a, indices_in(a), b, indices_in(b), cs...);
-// }
-
-// /// extend_members appends to the members tuple
-// template <class ...Ts> struct extend_names_t {
-//     template <class ...Cs> constexpr auto operator()(Cs &&...cs) const {
-//         return combine_names(Ts::names()..., std::array<char const *, sizeof...(Cs)>{{fw<Cs>(cs)...}});
-//     }
-// };
-// template <class ...Ts> struct extend_names_t<pack<Ts...>> : extend_names_t<Ts...> {};
-// template <class ...Ts> static constexpr auto extend_names = extend_names_t<Ts...>();
 
 template <class T, class A, class B, std::size_t ...Is, std::size_t ...Js>
 constexpr std::array<T, sizeof...(Is) + sizeof...(Js)> array_cat_impl(A &&a, B &&b, indices_t<Is...>, indices_t<Js...>) {
@@ -173,19 +140,30 @@ void for_each_member(T &&t, F &&f) {
 
 /******************************************************************************************/
 
-struct Empty {
-    auto members() {return make_members();}
-    static constexpr auto names() {return make_names();}
-    static constexpr auto accesses() {return make_members();}
+// struct Empty {
+//     auto members() {return make_members();}
+//     static constexpr auto names() {return make_names();}
+//     static constexpr auto accesses() {return make_members();}
 
-    constexpr bool operator==(Empty const &) const {return true;}
-    constexpr bool operator<=(Empty const &) const {return true;}
-    constexpr bool operator>=(Empty const &) const {return true;}
+//     constexpr bool operator==(Empty const &) const {return true;}
+//     constexpr bool operator<=(Empty const &) const {return true;}
+//     constexpr bool operator>=(Empty const &) const {return true;}
 
-    constexpr bool operator!=(Empty const &) const {return false;}
-    constexpr bool operator< (Empty const &) const {return false;}
-    constexpr bool operator> (Empty const &) const {return false;}
-};
+//     constexpr bool operator!=(Empty const &) const {return false;}
+//     constexpr bool operator< (Empty const &) const {return false;}
+//     constexpr bool operator> (Empty const &) const {return false;}
+// };
+
+#define NUPACK_REFLECT_EMPTY(cls) \
+    auto members() {return make_members();} \
+    static constexpr auto names() {return make_names();} \
+    static constexpr auto accesses() {return make_members();} \
+    constexpr bool operator==(cls const &) const {return true;} \
+    constexpr bool operator<=(cls const &) const {return true;} \
+    constexpr bool operator>=(cls const &) const {return true;} \
+    constexpr bool operator!=(cls const &) const {return false;} \
+    constexpr bool operator< (cls const &) const {return false;} \
+    constexpr bool operator> (cls const &) const {return false;}
 
 struct MemberComparable {};
 struct MemberWeaklyOrdered {};
@@ -254,11 +232,16 @@ struct BaseCast {
 #define NUPACK_EXTEND_NAMES(base, ...) static constexpr auto names() {return ::nupack::array_cat<char const *>(base::names(), NUPACK_NAMES_F(__VA_ARGS__));}
 #define NUPACK_EXTEND_ACCESSES(cls, base, ...) static constexpr auto accesses() {return std::tuple_cat(base::accesses(), NUPACK_ACCESSES_F(cls, __VA_ARGS__));}
 
+/// Extend list of members from a base type that cls is derived from
 #define NUPACK_EXTEND_REFLECT(cls, base, ...) NUPACK_EXTEND_MEMBERS(base, __VA_ARGS__) NUPACK_EXTEND_NAMES(base, __VA_ARGS__) NUPACK_EXTEND_ACCESSES(cls, base, __VA_ARGS__)
 
+/// Treat a base class as if it is a component of cls. Useful when the base class has no "members" API
 #define NUPACK_REFLECT_BASE(cls, base, ...) \
     NUPACK_MEMBERS(static_cast<base&>(*this), __VA_ARGS__) \
     NUPACK_NAMES(base, __VA_ARGS__) \
     static constexpr auto accesses() {return std::tuple_cat(std::make_tuple(::nupack::BaseCast<cls, base>()), NUPACK_ACCESSES_F(cls, __VA_ARGS__));}
 
     // static constexpr auto accesses() {return std::tuple_cat(NUPACK_ACCESSES_F(cls, ...));}
+
+#define NUPACK_DICT_IMPL(r, data, i, elem) BOOST_PP_COMMA_IF(i) {BOOST_PP_STRINGIZE(elem), elem}
+#define NUPACK_DICT(...) {BOOST_PP_SEQ_FOR_EACH_I(NUPACK_DICT_IMPL, , BOOST_PP_VARIADIC_TO_SEQ(__VA_ARGS__))}

@@ -108,7 +108,7 @@ bool to_arithmetic(Object const &o, Variable &v) {
 bool object_response(Variable &v, TypeIndex t, Object o) {
     if (Debug) {
         auto repr = Object::from(PyObject_Repr(SubClass<PyTypeObject>{(+o)->ob_type}));
-        DUMP("input object reference count", reference_count(o));
+        DUMP("input object reference count ", reference_count(o));
         DUMP("trying to convert object to ", t.name(), " ", from_unicode(+repr));
         DUMP(bool(cast_if<Variable>(o)));
     }

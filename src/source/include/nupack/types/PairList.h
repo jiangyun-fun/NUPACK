@@ -13,8 +13,8 @@ namespace nupack {
 
 /******************************************************************************************/
 
-using pair_data_type = vec<iseq>;
-using Nicks = small_vec<iseq>;
+using pair_data_type = vec<iseq, 32>;
+using Nicks = vec<iseq, 4>;
 
 struct PairList : Indexable<PairList>, TotallyOrdered {
     using data_type = pair_data_type;
@@ -27,9 +27,9 @@ struct PairList : Indexable<PairList>, TotallyOrdered {
     PairList() = default;
     explicit PairList(usize s) : values(s) {reset();}
 
-    PairList(std::string_view s) : values(io::to_pairs<data_type>(s)) {}
-    PairList(char const *s) : values(io::to_pairs<data_type>(s)) {}
-    PairList(std::string const &s) : values(io::to_pairs<data_type>(s)) {}
+    explicit PairList(std::string_view s) : values(io::to_pairs<data_type>(s)) {}
+    explicit PairList(char const *s) : values(io::to_pairs<data_type>(s)) {}
+    explicit PairList(std::string const &s) : values(io::to_pairs<data_type>(s)) {}
 
     PairList(data_type t) : values(std::move(t)) {}
 
@@ -51,7 +51,8 @@ struct PairList : Indexable<PairList>, TotallyOrdered {
 
     /************************************************************************************/
 
-    template <class N=data_type> string dp(N && nicks={}) const {
+    template <class N=Nicks>
+    string dp(N && nicks={}) const {
         return len(nicks) ? io::to_dp(values, nicks) : io::to_dp(values);
     }
 
@@ -88,7 +89,7 @@ struct PairList : Indexable<PairList>, TotallyOrdered {
     size_type operator^(PairList const &p) const {return hamming_distance(values, p.values);}
 
     /// Expects a list of strand lengths where the lengths exclude null bases
-    PairList with_null_bases(small_vec<iseq> const &strand_lengths) const;
+    PairList with_null_bases(vec<iseq> const &strand_lengths) const;
 
     /************************************************************************************/
 
@@ -113,8 +114,26 @@ struct PairList : Indexable<PairList>, TotallyOrdered {
 
     vec<std::array<value_type, 4>> pseudoknots() const;
 
-    bool is_connected(small_vec<uint> const &nicks) const;
+    uint n_complexes(Nicks const &nicks) const;
+    
+    bool is_pseudoknotted() const;
+
+    json save_repr() const;
+    void load_repr(json const &);
+
+    bool is_paired(size_type i) const {return values[i] != i;}
+
+    std::size_t pairs_between(uint a, uint b, uint x, uint y) const {
+        NUPACK_QUICK_ASSERT(a <= b && b <= size() && x <= y && y <= size(), a, b, x, y, size());
+        return count_if(range(a, b), [&](auto i) {
+            auto const j = values[i];
+            // Test if in range, also only count once if ranges overlap
+            return j >= x && j < y && (j < a || j >= b || i < j);
+        });
+    }
 };
+
+
 
 /******************************************************************************************/
 
@@ -170,6 +189,42 @@ iseq for_pairlists_between(PairList a, PairList const &b, F &&f) {
 }
 
 /******************************************************************************************/
+
+// Test if the interval [i:j) is self-contained
+template <class Pairs>
+bool self_contained(Pairs const &v, uint i, uint j) {
+    NUPACK_REQUIRE(i, <=, j);
+    if (i == j) return true;
+    auto const s = view(v, i, j);
+    return minimum(s) >= i && maximum(s) < j;
+}
+
+template <class Pairs, class Stack>
+bool self_contained(Pairs const &p, Stack const &s, uint i, uint j) {
+    // return s[j] != +1 && s[i] != -1 && self_contained(p, i, j);
+    return self_contained(p, i, j);
+}
+
+/******************************************************************************************/
+
+// Return vector of indices for each base saying which loop the base conventionally belongs to
+// loop is indexed by 1st opening 5' base
+vec<std::size_t> loop_indices(PairList const &p);
+
+// Call callbacks for each base in each loop
+template <class F, class B>
+void for_each_loop(PairList const &p, F &&loop_callback, B &&base_callback) {
+    for (auto i : indices(p)) if (p[i] > i) {
+        for (auto k = p[i + 1]; k != i; k = p[k + 1]) base_callback(k); // add base to current loop
+        loop_callback(); // finish current loop
+    }
+    for (auto k = p[0]; k != len(p); k = p[k + 1]) base_callback(k);
+    loop_callback();
+}
+
+/******************************************************************************************/
+
+std::tuple<uint, uint, int> single_pair_mismatch(PairList const &X, PairList const &Y);
 
 }
 

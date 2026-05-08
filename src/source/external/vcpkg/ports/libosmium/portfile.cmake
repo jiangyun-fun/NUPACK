@@ -1,21 +1,23 @@
-# header-only library
+set(VCPKG_BUILD_TYPE release) # header-only
+
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO osmcode/libosmium
-    REF v2.15.5
-    SHA512 a4972901db8ed89302e6ba15fd104543b5e36a41bc83daf8f6f6fb29ce73b0dbd8596de801d099a33df413b26eec1b3a6f4f0d669936ecc6d25f88d783468a59
-)
-set(BOOST_ROOT ${CURRENT_INSTALLED_DIR})
-
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA # Disable this option if project cannot be built with Ninja
-    OPTIONS -DBUILD_TESTING=OFF -DBUILD_EXAMPLES=OFF
+    REF "v${VERSION}"
+    SHA512 fb87d5ae37c6d864ba1b265bda8e8a213fe9714d4e3cc47bd87ec05d07b9007494d37752ec4223bc5a2d957eac090d752d71f1944cb5200ae3d4af8ac97b9e10
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        -DBUILD_TESTING=OFF
+        -DBUILD_EXAMPLES=OFF
+        -DCMAKE_DISABLE_FIND_PACKAGE_GDAL=ON
+        # for transitive dependencies via pkgconf 
+        -DPKG_CONFIG_USE_CMAKE_PREFIX_PATH=1
+        -DVCPKG_HOST_TRIPLET=${HOST_TRIPLET}
+)
+vcpkg_cmake_install()
 
-# Handle copyright
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
-
-file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug")
+file(INSTALL "${CURRENT_PORT_DIR}/usage" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

@@ -15,7 +15,7 @@ namespace nupack {
 NUPACK_BINARY_FUNCTOR(min,         (static_cast<std::common_type_t<T, U>>(u < t ? u : t)));
 NUPACK_BINARY_FUNCTOR(min_eq,      (u < t ? (t = u) : u));
 NUPACK_BINARY_FUNCTOR(max,         (static_cast<std::common_type_t<T, U>>(u < t ? t : u)));
-NUPACK_BINARY_FUNCTOR(max_eq,      (u > t ? (t = u) : u));
+NUPACK_BINARY_FUNCTOR(max_eq,      (t < u ? (t = u) : u));
 NUPACK_BINARY_FUNCTOR(assign_eq,   (fw<T>(t) = fw<U>(u)));
 
 NUPACK_BINARY_FUNCTOR(plus,        fw<T>(t) + fw<U>(u));
@@ -76,6 +76,9 @@ NUPACK_UNARY_FUNCTOR(to_lower,       std::tolower(static_cast<unsigned char>(t))
 NUPACK_UNARY_FUNCTOR(to_upper,       std::toupper(static_cast<unsigned char>(t)));
 NUPACK_BINARY_FUNCTOR(less_abs,      std::abs(fw<T>(t)) < std::abs(fw<U>(u)));
 NUPACK_BINARY_FUNCTOR(greater_abs,      std::abs(fw<T>(t)) > std::abs(fw<U>(u)));
+
+NUPACK_BINARY_FUNCTOR(first_less,    std::get<0>(t) < std::get<0>(u));
+NUPACK_BINARY_FUNCTOR(second_less,   std::get<1>(t) < std::get<1>(u));
 
 /******************************************************************************************/
 

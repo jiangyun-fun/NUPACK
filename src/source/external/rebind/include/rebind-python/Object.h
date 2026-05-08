@@ -32,7 +32,7 @@ struct Object {
     Object(PyObject *o, bool increment) : ptr(o) {if (increment) xincref(ptr);}
 
     Object(Object const &o) noexcept : ptr(o.ptr) {xincref(ptr);}
-    Object & operator=(Object const &o) noexcept {ptr = o.ptr; xincref(ptr); return *this;}
+    Object & operator=(Object const &o) noexcept {xdecref(ptr); ptr = o.ptr; xincref(ptr); return *this;}
 
     Object(Object &&o) noexcept : ptr(std::exchange(o.ptr, nullptr)) {}
     Object & operator=(Object &&o) noexcept {ptr = std::exchange(o.ptr, nullptr); return *this;}

@@ -1,50 +1,46 @@
-vcpkg_fail_port_install(ON_TARGET "uwp")
+vcpkg_download_distfile(PKGCONFIG_EXPORT_PATCH
+    URLS https://github.com/c-ares/c-ares/commit/d41db1b7916fadea987e5bb05fd4aafaf0d1d6ea.patch?full_index=1
+    SHA512 a7f96fa0d10f44d0f5981cdeef741fb57228f61bb18a79d581c4f1a8df6ae54771b0fb9f7985a8429dc31c5c3506aa436e8240fdcd4c8503da98a4c7bdce4347
+    FILENAME c-ares-pkgconfig-export-d41db1b7916fadea987e5bb05fd4aafaf0d1d6ea.patch
+)
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO c-ares/c-ares
-    REF cares-1_17_1
-    SHA512 e2a2a40118b128755571274d0cfe7cc822bc18392616378c6dd5f73f210571d7e5005a40ba0763658bdae7f2c7aadb324b2888ad8b4dcb54ad47dfaf97c2ebfc
-    HEAD_REF master
+    REF "v${VERSION}"
+    SHA512 7bd4ca8f1a1b6d7b6662c724315bb5d4ca1d3c19e5ff4e06e3567ea25d5f8fd60f9c5f9ade055f08dc7fc3dec0e40e96f8284207b3e03c0975fd962d4a9fcb47
+    HEAD_REF main
+    PATCHES
+        avoid-docs.patch
+        "${PKGCONFIG_EXPORT_PATCH}"
 )
 
-if(VCPKG_LIBRARY_LINKAGE STREQUAL static)
-    set(CARES_STATIC 1)
-    set(CARES_SHARED 0)
-else()
-    set(CARES_STATIC 0)
-    set(CARES_SHARED 1)
-endif()
+string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "static" BUILD_STATIC)
+string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "dynamic" BUILD_SHARED)
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
-        -DCARES_STATIC=${CARES_STATIC}
-        -DCARES_SHARED=${CARES_SHARED}
+        -DCARES_STATIC=${BUILD_STATIC}
+        -DCARES_SHARED=${BUILD_SHARED}
+        -DCARES_BUILD_TOOLS=OFF
+        -DCARES_BUILD_TESTS=OFF
+        -DCARES_BUILD_CONTAINER_TESTS=OFF
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
+vcpkg_copy_pdbs()
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/c-ares)
+vcpkg_fixup_pkgconfig()
 
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/c-ares)
-
-if(VCPKG_LIBRARY_LINKAGE STREQUAL static)
-    file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/bin)
-    file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/bin)
-else()
-    file(GLOB EXE_FILES
-        "${CURRENT_PACKAGES_DIR}/bin/*.exe"
-        "${CURRENT_PACKAGES_DIR}/debug/bin/*.exe"
+if(VCPKG_LIBRARY_LINKAGE STREQUAL "static")
+    vcpkg_replace_string(
+        "${CURRENT_PACKAGES_DIR}/include/ares.h"
+        "#  ifdef CARES_STATICLIB" "#if 1"
     )
-    if (EXE_FILES)
-        file(REMOVE ${EXE_FILES})
-    endif()
 endif()
 
-vcpkg_copy_pdbs()
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include" "${CURRENT_PACKAGES_DIR}/debug/share")
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/share)
-
-# Handle copyright
-file(INSTALL ${SOURCE_PATH}/LICENSE.md DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/usage" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE.md")

@@ -79,6 +79,12 @@ template <class I> struct Range : View<ValueIter<I>>, RangeBase<Range<I>, I> {
     friend constexpr Range operator+(I i, Range const &s) {return {*s.begin()+i, *s.end()+i};}
     friend constexpr Range operator+(Range const &s, I i) {return {*s.begin()+i, *s.end()+i};}
     friend constexpr Range operator-(Range const &s, I i) {return {*s.begin()-i, *s.end()-i};}
+    
+    template <class J>
+    friend constexpr Range operator*(Range const &s, J i) {return {*s.begin() * i, *s.end() * i};}
+    
+    template <class J>
+    friend constexpr Range operator*(J i, Range const &s) {return {i * *s.begin(), i * *s.end()};}
 
     /// Shift and reverse a Range
     constexpr Range reversed(I n) const {return {n-*end(), n-*begin()};}
@@ -95,6 +101,9 @@ template <class I> struct Range : View<ValueIter<I>>, RangeBase<Range<I>, I> {
 
 using span = Range<uint>;
 static_assert(can_copy<span>, "");
+
+inline span lspan(int i, int j) {return span(i, max(i, j));}
+
 using cspan = span const;
 
 NUPACK_DEFINE_TYPE(is_span, span);
@@ -121,13 +130,13 @@ NUPACK_EXTEND_TEMPLATE(is_view, Range, class);
 /// Checks endpoint by !=
 template <class T=void, class I> constexpr auto range(I i) {
     using S = nonvoid<T, I>;
-    return Range<S>(static_cast<S>(zero), static_cast<S>(i));
+    return Range<S>(S(), static_cast<S>(i));
 }
 
 /// Checks endpoint by <
 template <class T=void, class I> constexpr auto lrange(I i) {
     using S = nonvoid<T, I>;
-    return Range<S>(static_cast<S>(zero), std::max(static_cast<S>(zero), static_cast<S>(i)));
+    return Range<S>(S(), std::max(S(), static_cast<S>(i)));
 }
 
 /// Checks endpoint by !=
@@ -164,7 +173,7 @@ template <class V, class B, class E> constexpr auto iterators(V &&v, B b, E e) {
 /// Return a view on the indices of a container i.e. [0 : its length)
 template <class I=void, class V> constexpr auto indices(V const &v) {
     using S = nonvoid<I, decay<decltype(len(v))>>;
-    return range(static_cast<S>(zero), static_cast<S>(len(v)));
+    return range(S(), static_cast<S>(len(v)));
 }
 
 /// Return a view of copies of the same object

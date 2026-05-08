@@ -1,5 +1,88 @@
 from nupack import *
-import pickle
+import pickle, tempfile
+
+dump = lambda *args: [str(a) for a in args]
+
+################################################################################
+
+def test_design_print():
+    dna = ''.join(des('.10', model=Model(material='dna')))
+    rna = ''.join(des('.10', model=Model(material='rna')))
+    assert 'U' not in dna
+    assert 'T' not in rna
+
+################################################################################
+
+def test_domain_list():
+    a = Domain('A3', name='a')
+    b = Domain('U4', name='b')
+    ab = a + b
+    dump(repr(ab))
+    dump(ab)
+    assert ab == DomainList([a, b])
+    assert ~ab == ~DomainList([a, b])
+    assert ~DomainList([a, b]) == DomainList([~b, ~a])
+    assert ~(~DomainList([a, b])) == DomainList([a, b])
+
+    assert (a + b + b).nt() == 11
+    assert len(a + b + b) == 3
+    assert TargetStrand(ab, name='s').nt() == 7
+
+################################################################################
+
+def test_launch():
+    a = Domain('N5', name='a')
+    A = TargetStrand([a], name='A')
+    lib = Library(A, [['ATCGT']])
+    cA = TargetComplex([A], structure='.....')
+    result = complex_design([cA], model=Model()).run(1)
+    with tempfile.TemporaryDirectory() as tmp:
+        opt = complex_design([cA], model=Model()).launch(4, checkpoint=tmp)
+        print(opt.current_results())
+        opt.wait()
+        print(opt.current_results())
+
+def test_alphabet():
+    for p in ['rna06', 'dna04']:
+        for s in ['NNNAUT', 'NNNAUU', 'NNNATT']:
+            for t in ['NNNAUT', 'NNNAUU', 'NNNATT']:
+                A = TargetStrand([Domain(s, name='a'), Domain(t, name='b')], name='A')
+                cA = TargetComplex([A], structure='.6')
+                result = complex_design([cA], model=Model(material=p)).run(1)
+                print(result)
+
+def test_max_time():
+    a = Domain('N23', name='a')
+    A = TargetStrand([a], name='A')
+    cA = TargetComplex([A], structure='((.(.(.(......).).).).)')
+    result = complex_design([cA], model=Model(), options={'f_stop': 1e-8, 'max_time':1e-16}).run(1)
+    print(result)
+
+def test_alphabet():
+    for p in ['rna06', 'dna04']:
+        for s in ['NNNAUT', 'NNNAUU', 'NNNATT']:
+            for t in ['NNNAUT', 'NNNAUU', 'NNNATT']:
+                A = TargetStrand([Domain(s, name='a')], name='A')
+                B = TargetStrand([Domain(t, name='b')], name='B')
+                cA = TargetComplex([A], structure='.6')
+                cB = TargetComplex([B], structure='.6')
+                result = complex_design([cA, cB], model=Model(material=p)).run(1)
+                print(result)
+
+def test_domain_list():
+    a = Domain('A3', name='a')
+    b = Domain('U4', name='b')
+    ab = a + b
+    print(repr(ab))
+    print(ab)
+    assert ab == DomainList([a, b])
+    assert ~ab == ~DomainList([a, b])
+    assert ~DomainList([a, b]) == DomainList([~b, ~a])
+    assert ~(~DomainList([a, b])) == DomainList([a, b])
+
+    assert (a + b + b).nt() == 11
+    assert len(a + b + b) == 3
+    assert TargetStrand(ab, name='s').nt() == 7
 
 ################################################################################
 
@@ -7,19 +90,19 @@ def test_pickle():
     def test(x):
         assert pickle.loads(pickle.dumps(x)) == x
 
-    s = RawStrand('AAA')
+    s = Strand('AAA', name='A')
     test(s)
 
-    c = RawComplex('AA+TT')
+    c = Complex([s, s], name='x')
     test(c)
 
     a = Domain('AAAA', name='Domain a')
     test(a)
 
-    A = TargetStrand([a], name='RawStrand A')
+    A = TargetStrand([a], name='Strand A')
     test(A)
 
-    c1 = TargetComplex([A], structure='.4', name='RawComplex c1')
+    c1 = TargetComplex([A], structure='.4', name='Complex c1')
     test(c1)
 
     # t4 = TargetTube({c1: 2e-4}, max_size=2, name='t4')
@@ -37,19 +120,19 @@ def test_inputs():
     g = Domain('N10', name='Domain g')
 
         # Domains should not be specified inline
-    A = TargetStrand([a, b, g], name='RawStrand A')
-    B = TargetStrand([d, ~e], name='RawStrand B')
-    C = TargetStrand([e, a, f], name='RawStrand C')
-    D = TargetStrand([d, d, d], name='RawStrand D')
+    A = TargetStrand([a, b, g], name='Strand A')
+    B = TargetStrand([d, ~e], name='Strand B')
+    C = TargetStrand([e, a, f], name='Strand C')
+    D = TargetStrand([d, d, d], name='Strand D')
 
 
-    c1 = TargetComplex([A], structure='.18', name='RawComplex c1')
-    c2 = TargetComplex([A, B, B, C], structure='.18+.20+.20+.24', name='RawComplex c2')
-    c3 = TargetComplex([A, A], structure='.18+.18', name='RawComplex c3')
-    c4 = TargetComplex([A, A], structure='.18+.18', name='RawComplex c4')
+    c1 = TargetComplex([A], structure='.18', name='Complex c1')
+    c2 = TargetComplex([A, B, B, C], structure='.18+.20+.20+.24', name='Complex c2')
+    c3 = TargetComplex([A, A], structure='.18+.18', name='Complex c3')
+    c4 = TargetComplex([A, A], structure='.18+.18', name='Complex c4')
     assert c3 == c4
-    assert c3.name == 'RawComplex c3'
-    assert c4.name == 'RawComplex c4'
+    assert c3.name == 'Complex c3'
+    assert c4.name == 'Complex c4'
 
     assert isinstance(c1[0], TargetStrand)
     try:
@@ -73,6 +156,32 @@ def test_inputs():
 
     t1 = TargetTube({c1: 1e-8, c2: 1e-8}, SetSpec(3, [c3], [c1]), name='Tube t1')
     t2 = TargetTube({c1: 1e-8, c2: 1e-8}, SetSpec(3, [c3], [c1]), name='Tube t2')
+
+    weights = Weights([t1, t2])
+
+    try:
+        weights[t1]
+        raise TypeError('invalid weights')
+    except KeyError:
+        pass
+
+    try:
+        weights[g, B]
+        raise TypeError('invalid weights')
+    except KeyError:
+        pass
+
+    weights[a] *= 2
+    weights[:,:,:,t2] = 2
+    weights[:, :, c1, t1] = 5
+    weights[b, A, :, :] = 0.75
+    weights[g, A, c2, t2] = 0.5
+    weights[d, :, :, t2] = 3
+
+    dump(weights[:, :, :, t1])
+    dump(weights[:, :, c2, t1])
+    dump(weights[:, A, c2, t1])
+    dump(weights[d, :, c2, t1])
 
     # specify tubes by their names and on-target complexes with on-target concentrations
     t1 = TargetTube({C1: 1e-6}, SetSpec(include=[C4, C5]), name='t1')
@@ -117,8 +226,8 @@ def test_inputs():
     f = Domain('S2', name='f')
 
     #add another constraint to the constrain set
-    hard += [Complementarity([e],[f], wobble_mutations=True)]
-    hard.append(Complementarity([e],[f], wobble_mutations=True)) # same thing
+    hard += [Complementarity([e],[f])]
+    hard.append(Complementarity([e],[f])) # same thing
 
     a = Domain('N'*10, name='a')
     b = Domain('N'*4, name='b')
@@ -248,20 +357,6 @@ def test_inputs():
     # equalize to reference value, with explicit weight
     diff2 = EnergyMatch([a, b], energy_ref=-17, weight=0.5)
 
-    weights = Weights([t1, t2])
-
-    weights[a] *= 2
-    weights[:,:,:,t2] = 2
-    weights[:, :, c1, t1] = 5,
-    weights[b, A, :, :] = 0.75
-    weights[a, D, c3, t2] = 0.5
-    weights[d, :, :, t2] = 3
-
-    print(weights[:, :, :, t1])
-    print(weights[:, :, c2, t1])
-    print(weights[:, A, c2, t1])
-    print(weights[d, :, c2, t1])
-
     options = DesignOptions(
         seed=0,     # random number generation seed
         f_stop=0.5,  # stop condition
@@ -279,26 +374,25 @@ def test_inputs():
         f_sparse=1e-05,
         slowdown=0,
         log='',
-        decomposition_log=None,
-        thermo_log=None,
+        decomposition_log='',
+        thermo_log='',
         time_analysis=False
     )
-
 
     # run the job
     try:
         des = Design(tubes=[t1, t2],
             hard_constraints=[], soft_constraints=[],
             defect_weights=None, options=options, model=Model()).run(trials=1)
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        print(e)
 
     try:
         des = complex_design(complexes=[c1, c2],
             hard_constraints=[], soft_constraints=[],
             defect_weights=None, options=options, model=Model()).run(trials=1)
-    except RuntimeError:
-        pass
+    except RuntimeError as e:
+        print(e)
 
     a = Domain('N20', name='a')
     A = TargetStrand([a], name='A')
@@ -313,15 +407,15 @@ def test_inputs():
 
     check_print(result)
 
-    print(result.to_analysis(tube))
-    print(result.to_analysis(C))
-    print(result.to_analysis(A))
-    print(result.to_analysis(a))
+    dump(result.to_analysis(tube))
+    dump(result.to_analysis(C))
+    dump(result.to_analysis(A))
+    dump(result.to_analysis(a))
 
-    print(result.defects.ensemble_defect)
-    print(result.defects.tubes)
-    print(result.defects.complexes)
-    print(result.defects.tube_complexes)
+    dump(result.defects.ensemble_defect)
+    dump(result.defects.tubes)
+    dump(result.defects.complexes)
+    dump(result.defects.tube_complexes)
 
     #########
 
@@ -378,6 +472,43 @@ def test_example8():
     design = Design([figuretube], model)
     result = design.evaluate()
     check_print(result)
+
+################################################################################
+
+def test_constraints():
+    # set physical parameters
+    model = Model(material='rna', celsius=37)
+    a = Domain('N10', name='a')
+    b = Domain('N10', name='b')
+    A = TargetStrand([a, b], name='A')
+    B = TargetStrand([~b, ~a], name='B')
+    C = TargetComplex([A, B], '(20+)20', name='C')
+
+    tube = TargetTube({C: 1e-08}, SetSpec(2), name='tube')
+
+    def run(hard=(), soft=()):
+        result = Design([tube], model, hard_constraints=hard, soft_constraints=soft).run(trials=1)[0]
+        check_print(result)
+
+    run()
+    run(hard=[Match([a], [b])])
+    run(hard=[Complementarity([a], [b])])
+    run(hard=[Diversity(word=10, types=4, scope=[a, b])])
+    run(hard=[Diversity(word=10, types=4)])
+    run(hard=[Similarity([a], 'S10', limits=[0.4, 0.6])])
+    run(hard=[Window([a], sources=['GCUAGCUGUAGCUCGUAGCUGAUCGACUGAGCUGACUGA'])])
+    run(hard=[Library([a], [['AGCUGGCUGA', 'AUCGUACGAU']])])
+    run(hard=[Pattern(['U4', 'A4'], scope=[a])])
+    run(hard=[Pattern(['U4', 'A4'])])
+
+    run(soft=[Similarity([a], 'S10', limits=[0.4, 0.6], weight=2.0)])
+    run(soft=[Pattern(['U4', 'A4'], scope=[a], weight=1.0)])
+    run(soft=[Pattern(['U4', 'A4'], weight=1.0)])
+    run(soft=[SSM(word=4, weight=0.5, scope=[C])])
+    run(soft=[SSM(word=4, weight=0.5)])
+    run(soft=[EnergyMatch([a, b], weight=0.05, energy_ref=-4.0)])
+    run(soft=[EnergyMatch([a, b], weight=0.05)])
+
 
 ################################################################################
 
@@ -455,16 +586,18 @@ def test_example7():
     hard += [Pattern(['A4','C4','G4','U4'])]
 
     options = DesignOptions(seed=93, f_stop=0.1)
-    tubes = [Step_0, Step_0, Step_0, Crosstalk]
+    assert options.f_stop == 0.1
+    assert options.seed == 93
+    tubes = [Step_0, Step_1, Step_2, Crosstalk]
     weights = Weights(tubes)
 
     check_print(weights)
     weights[:, :, :, Step_0] = 2
     weights[:, :, :, 'Step_0'] = 1
-
-    mydes = Design(tubes, model=Model(), hard_constraints=hard, options=options, defect_weights=weights)
+    check_print(weights)
+    #mydes = Design(tubes, model=Model(), hard_constraints=[], options=options, defect_weights=weights)
+    mydes = Design(tubes, model=model, hard_constraints=hard, options=options, defect_weights=weights)
     result = mydes.run(trials=1)[0]
-
     check_print(result)
     check_print(result.defects.tubes)
     check_print(result.defects.tube_complexes)
@@ -476,61 +609,114 @@ def test_example7():
 
 ################################################################################
 
-def test_old_design():
-    x = design.Specification(model=Model())
-    n = x.domains.__len__()
-    assert n == 0
-    assert len(x.tubes) == 0
-    x.add_domain('a', 'N'*12)
-    x.add_domain('b', 'N'*24)
-    x.add_domain('c', 'N'*12)
+from nupack import *
 
-    x.add_strand('i1', ('b*', 'a*'))
-    x.add_strand('h2', ('b*', 'a*', 'b', 'c'))
-    x.add_strand('i2', ('c*', 'b*'))
-    x.add_strand('h1', ('a', 'b', 'c*', 'b*'))
+def test_winfree_design():
+    # specify domains
+    a = Domain('N4', name='a')
+    b = Domain('N4', name='b')
+    c = Domain('N5', name='c')
+    d = Domain('N5', name='d')
+    e = Domain('N5', name='e')
+    f = Domain('N5', name='f')
+
+    A = TargetStrand([a, b, c], name='A')
+
+    # source sequence for window constraint
+    gfp = 'auggugagcaagggcgaggagcuguucaccgggguggugcccauccuggucgagcuggacggcgacguaaacggccacaaguucagcguguccggcgagggcgagggcgaugccaccuacggcaagcugacccugaaguucaucugcaccaccggcaagcugcccgugcccuggcccacccucgugaccacccugaccuacggcgugcagugcuucagccgcuaccccgaccacaugaagcagcacgacuucuucaaguccgccaugcccgaaggcuacguccaggagcgcaccaucuucuucaaggacgacggcaacuacaag'
+
+    # define list of hard constraints
+    my_hard_constraints = [
+        Match([a], [b]),
+        Match([a, b, f, f], [d, a, d, a]),
+        Complementarity([a, b, f, a, a, b], [c, d, e, c, c], wobble_mutations=True),
+        Similarity([c], 'S5', limits=[0.2, 0.8]), # GC content
+        Library([a], catalog=[['CTAC', 'TAAT']]),
+        Window([a, ~b], sources=[gfp]),
+        Pattern(['A5', 'C5', 'G5', 'U5'], scope=A),
+        Pattern(['A4', 'C4', 'G4', 'U4', 'M6', 'K6', 'W6', 'S6', 'R6', 'Y6']),
+        Diversity(word=4, types=2),
+        Diversity(word=6, types=3),
+        Diversity(word=10, types=4, scope=[a, b])
+    ]
+
+    #two ways to add another constraint to the constraint set
+    my_hard_constraints += [Complementarity([e], [f], wobble_mutations=True)]
+    my_hard_constraints.append(Complementarity([e], [f], wobble_mutations=True))
 
 
-    model = Model(material='DNA', ensemble='some-nupack3', celsius=25)
-    x.model = model
+    my_model = Model()
+    B = TargetStrand([d,e,f],name="B")
+    C1= TargetComplex([A], '.13', name='C1')
+    C2= TargetComplex([B], '.15', name='C2')
+    my_complexes = [C1,C2]
+    my_design = complex_design(complexes=my_complexes,
+        hard_constraints=my_hard_constraints, soft_constraints=[],
+        defect_weights=None, options=None, model=my_model)
 
-    x.add_complex('A', ('h1'), '.12(24.12)24')
-    x.add_complex('B', ('h2'), '(24.12)24.12')
-    x.add_complex('X', ('i1'), '.36')
-    x.add_complex('X__A', ('h1', 'i1'), '(36.36+)36')
-    x.add_complex('X__A__B', ('h1', 'h2', 'i1'), '(72+.36)36+)36')
-    x.add_complex('X__A__A__B', ('h1', 'h1', 'h2', 'i1'), '(72+(36.36+)72+)36')
-    x.add_complex('A_out', ('i2'), '.36')
+    try:
+        result = my_design.run(trials=10) # run 10 independent design trials in the foreground
+        assert False, 'Error should be raised'
+    except RuntimeError as e:
+        assert 'No nucleotides found' in str(e)
 
-    def on_targets(l):
-        return {k: 1e-8 for k in l}
+################################################################################
 
-    def split(l):
-        return [x.split() for x in l]
+# def test_old_design():
+    # x = design.Specification(model=Model())
+    # n = x.domains.__len__()
+    # assert n == 0
+    # assert len(x.tubes) == 0
+    # x.add_domain('a', 'N'*12)
+    # x.add_domain('b', 'N'*24)
+    # x.add_domain('c', 'N'*12)
 
-    x.add_tube('Step_0', on_targets(['X', 'A', 'B']))
-    assert len(x.tubes) == 1
-    exclude = split(['X__A__B', 'X__A', 'X__A__A__B', 'h1 h1 h2', 'h2 h2 h1', 'h1 h1 h2 h2'])
-    explicit = split(['h1 h2'])
-    x.add_off_targets('Step_0', max_size=2, explicit=explicit, exclude=exclude)
+    # x.add_strand('i1', ('b*', 'a*'))
+    # x.add_strand('h2', ('b*', 'a*', 'b', 'c'))
+    # x.add_strand('i2', ('c*', 'b*'))
+    # x.add_strand('h1', ('a', 'b', 'c*', 'b*'))
 
-    x.add_tube('Step_1', on_targets(['X__A']))
-    explicit = split(['h1', 'i1'])
-    x.add_off_targets('Step_1', max_size=2, explicit=explicit)
 
-    x.add_tube('Step_2', on_targets(['X__A__B']))
-    explicit = split(['h2', 'X__A'])
-    exclude = split(['h1 h1 h2', 'h2 h2 h1', 'h1 h1 h2 h2', 'X__A__A__B'])
-    x.add_off_targets('Step_2', max_size=2, explicit=explicit, exclude=exclude)
+    # model = Model(material='DNA', ensemble='some-nupack3', celsius=25)
+    # x.model = model
 
-    x.add_tube('Step_3', on_targets(['X__A__A__B']))
-    explicit = split(['h1', 'X__A__B'])
-    exclude = split(['h1 h1 h2', 'h2 h2 h1', 'h1 h1 h2 h2'])
-    x.add_off_targets('Step_3', max_size=2, explicit=explicit, exclude=exclude)
+    # x.add_complex('A', ('h1'), '.12(24.12)24')
+    # x.add_complex('B', ('h2'), '(24.12)24.12')
+    # x.add_complex('X', ('i1'), '.36')
+    # x.add_complex('X__A', ('h1', 'i1'), '(36.36+)36')
+    # x.add_complex('X__A__B', ('h1', 'h2', 'i1'), '(72+.36)36+)36')
+    # x.add_complex('X__A__A__B', ('h1', 'h1', 'h2', 'i1'), '(72+(36.36+)72+)36')
+    # x.add_complex('A_out', ('i2'), '.36')
 
-    x.add_tube('Crosstalk', on_targets(['A', 'B', 'X', 'A_out']))
-    exclude = split(['i1 h1', 'i2 h2', 'h1 h2 i1', 'h1 h1 h2 i1', 'h1 h1 h2', 'h2 h2 h1', 'h1 h1 h2 h2', 'i2 h1 h2', 'i2 h1 h2 h2'])
-    x.add_off_targets('Crosstalk', max_size=2, exclude=exclude)
+    # def on_targets(l):
+    #     return {k: 1e-8 for k in l}
+
+    # def split(l):
+    #     return [x.split() for x in l]
+
+    # x.add_tube('Step_0', on_targets(['X', 'A', 'B']))
+    # assert len(x.tubes) == 1
+    # exclude = split(['X__A__B', 'X__A', 'X__A__A__B', 'h1 h1 h2', 'h2 h2 h1', 'h1 h1 h2 h2'])
+    # explicit = split(['h1 h2'])
+    # x.add_off_targets('Step_0', max_size=2, explicit=explicit, exclude=exclude)
+
+    # x.add_tube('Step_1', on_targets(['X__A']))
+    # explicit = split(['h1', 'i1'])
+    # x.add_off_targets('Step_1', max_size=2, explicit=explicit)
+
+    # x.add_tube('Step_2', on_targets(['X__A__B']))
+    # explicit = split(['h2', 'X__A'])
+    # exclude = split(['h1 h1 h2', 'h2 h2 h1', 'h1 h1 h2 h2', 'X__A__A__B'])
+    # x.add_off_targets('Step_2', max_size=2, explicit=explicit, exclude=exclude)
+
+    # x.add_tube('Step_3', on_targets(['X__A__A__B']))
+    # explicit = split(['h1', 'X__A__B'])
+    # exclude = split(['h1 h1 h2', 'h2 h2 h1', 'h1 h1 h2 h2'])
+    # x.add_off_targets('Step_3', max_size=2, explicit=explicit, exclude=exclude)
+
+    # x.add_tube('Crosstalk', on_targets(['A', 'B', 'X', 'A_out']))
+    # exclude = split(['i1 h1', 'i2 h2', 'h1 h2 i1', 'h1 h1 h2 i1', 'h1 h1 h2', 'h2 h2 h1', 'h1 h1 h2 h2', 'i2 h1 h2', 'i2 h1 h2 h2'])
+    # x.add_off_targets('Crosstalk', max_size=2, exclude=exclude)
 
     # x.add_source("tmp3", "GAACACTATTAGCTATTTGTAGTACTCTAAAGAGGACTGCAGAACGCATCGCAGTAGTGGTGAAAAGCCGTGCGTGCGCGTGAAACATCTGATCCTCACGTTACTTCCACTCGCTCTGCGTTTGACTTGTTGGCGGGGCGTTGGTGCCTTGGACTTTTTTTTCCTCCTTCTCTTCTTCGCGGCTCGGTCCACTACGCTGCTCGAGAGGAATCTGCTTTATTCGACCACACTACTCCTAAAGTAACACATTAAAATGGCCGGATCAAACAGCATCGATGCAGTTAAGAGAAAAATCAAAGTTTTACAACAGCAAGCAGATGAGGCAGAAGAAAGAGCCGAGATTTTGCAGAGACAGGTCGAGGAGGAGAAGCGTGCCAGGGAGCAGGCTGAGGCAGAGGTGGCTTCTCTGAACAGGCGTATCCAGCTGGTTGAGGAGGAGTTGGATCGTGCTCAGGAGAGACTGGCCACAGCCCTGCAAAAGCTGGAGGAAGCCGAGAAGGCCGCAGATGAGAGCGAGAGAGGGATGAAGGTGATTGAGAACAGGGCTCTGAAGGATGAGGAGAAGATGGAGCTGCAGGAGATCCAGCTTAAGGAGGCCAAGCACATTGCTGAGGAGGCTGACCGCAAATATGAAGAGGTGGCTCGTAAGCTGGTGATCGTTGAGGGAGAGTTGGAGCGTACAGAGGAGAGAGCAGAGCTTGCAGAGAGCCATGTCAAGCAGATGGAGGAGGAGCTGAGAGCTCTTGACCAGACACTGAAGACTCTTCAGGCCTCAGAGGAGAAGTATTCCCAGAAGGAGGACAAGTATGAGGAAGAAATCAAGATCCTCACTGATAAGCTGAAGGAGGCTGAGACCCGTGCAGAGTTTGCTGAGAGGTCTGTGGCCAAACTGGAGAAAACCATTGATGATTTGGAAGAGAAACTGAGAGATGCTAAAGAGGAGAACATCAAGATCCATGCTACTTTGGACCAGACCCTGAGCGAGCTCAATAGTTTCTAAAGAAGACCTGGAGCAGAAAAAAGGCCTTTTCTTCCCTTCTTGACTCCCTCATCTCATTTTGGTTTCTTTGTCTCTGCACATCTGATTCTCCCCCTTTTTTTTTCTTCTCTTCTTCTGCTGGAGGATAAGCTCACCAAGCCAACCAGCAAAAATGTGGTGCCTCTCAATTTTTCCAAACTACTATTCCAAGTGATTTGAGAAATGATCTACTACGATACTCCTCAAGAGTCAAATGTTGACCTCGGGGAGCCTTTTTTGGTATTGCTCCATGATCAGAGCTTTACGAGCTAGTGTTTTTTCTGCATATCAGCCCAAACTCTCAATGATAATTTTACTGGAGGCTGATTTTTGTAAAATTTTGTGCCATAAAAGCCTTGTTGGCTTGTCTCTTGCTTGGCTTTAGATCATTCTCAAGCCATTTTTTTCCTGCTGTTGCTCTGACACAGGTTGTTTTTGCTGGTCTTGTTGGTGCCTGATCCACTGCTATCCTTTTCACACCTCTTTTTTTTTTTTCTTCATCCTGCACAAGTTTCTGCTGCCTGTTAGTCGGCATCACCGGTTTTGGGACCAAAACCACATCATGTGGTCTGTAACAGTATGCACAACCATGCCGTGAGGACCAAATTTGTTTTATTATTGTTATTATTATTAAAAGCCTTTGCTTCCATTCGGAGTTTGTTTTTTTGAGTAATATATGTATTCATTGTTTGGGTCGAATCCCCTTGCTTTTTTAACACAAATGTTTTGCAAACCACTATTTGAAATGGTGCACTGTTATGGGCTTATGGTGAGCAGATGAGGCCAAGTCATGGTTTCTTCATTATAATTTTCTTTTCATTTGCTTTAAAGAGCCATATTCTACCCAGGGAAGAAAGGTTGAAGTTGTTTTGTTTTTTTACCGTGAGTTCAAAGCAGTGGCACTGCCAGATTTAAAAGGTTCAAAAGCCGTGCAGATCTAAAATATGTATTATGAACACAGTAATGGGAGCGAATTGTAACACTTAATAGTATACAAATTTAAGAAACAGGGGTGAACACATAGTTTTAACTGGAAAAAGCCCACAATGATGTGTAATCACTTTGTTACTGTCTGTATCTTGTGTAATGATACCTAAATTCTTTTTTTAAATAAAAACCATGATTTTTACTGTCACTGAAAAAAAAAAAAAAAAAAA")
     # x.add_source("desm", "CATTTACACAGCGTACAAACCCAACAGGCCCAGTCATGAGCACGAAATATTCAGCCTCCGCCGAGTCGGCGTCCTCTTACCGCCGCACCTTTGGCTCAGGTTTGGGCTCCTCTATTTTCGCCGGCCACGGTTCCTCAGGTTCCTCTGGCTCCTCAAGACTGACCTCCAGAGTTTACGAGGTGACCAAGAGCTCCGCTTCTCCCCATTTTTCCAGCCACCGTGCGTCCGGCTCTTTCGGAGGTGGCTCGGTGGTCCGTTCCTACGCTGGCCTTGGTGAGAAGCTGGATTTCAATCTGGCTGATGCCATAAACCAGGACTTCCTCAACACGCGTACTAATGAGAAGGCCGAGCTCCAGCACCTCAATGACCGCTTCGCCAGCTACATCGAGAAGGTGCGCTTCCTCGAGCAGCAGAACTCTGCCCTGACGGTGGAGATTGAGCGTCTGCGGGGTCGCGAGCCCACCCGTATTGCAGAGCTGTACGAGGAGGAGATGAGAGAGCTGCGCGGACAGGTGGAGGCACTGACCAATCAGAGATCCCGTGTGGAGATCGAGAGGGACAACCTAGTCGATGACCTACAGAAACTAAAGCTCAGACTTCAAGAGGAGATCCACCAGAAAGAGGAAGCTGAAAACAACCTTTCTGCTTTCAGAGCTGATGTCGATGCTGCCACTCTGGCCAGGCTGGACCTGGAAAGACGTATCGAGGGTCTTCACGAAGAGATTGCATTCCTCAGGAAGATTCATGAGGAGGAGATCCGTGAGCTGCAGAACCAGATGCAGGAGAGTCAGGTGCAGATCCAAATGGACATGTCCAAACCAGACCTGACTGCGGCCCTCAGAGACATTCGCCTGCAGTACGAGGCTATCGCTGCCAAGAATATCAGCGAGGCCGAGGACTGGTATAAGTCTAAGGTTTCAGATTTGAACCAGGCAGTGAACAAGAATAACGAGGCTCTCAGAGAAGCCAAGCAGGAGACCATGCAGTTCCGTCACCAGCTCCAGTCCTACACCTGCGAGATTGACTCTCTCAAGGGCACCAATGAGTCTCTGAGGAGGCAAATGAGTGAGATGGAGGAGCGGCTGGGACGTGAGGCCGGTGGTTATCAGGACACTATCGCCCGTCTCGAGGCTGAGATCGCAAAAATGAAAGACGAGATGGCCCGCCACCTCCGCGAGTACCAGGATCTGCTGAATGTGAAGATGGCTCTGGATGTGGAGATCGCCACCTACAGGAAGCTTTTGGAAGGAGAGGAGAGCAGGATCTCGCTGCCCGTGCAGTCCTTTTCATCCCTGAGTTTCAGAGAGAGCAGTCCAGAGCAGCACCACCACCAGCAGCAGCAACCACAACGCTCATCTGAAGTCCACTCCAAGAAAACAGTCCTGATCAAGACCATCGAGACCCGCGATGGCGAGGTCGTCAGCGAGTCCACACAGCACCAGCAGGACGTCATGTAAAGCTTGAGAAACAGATCGAGTTTCACAGAATGCCTTGCATTTTCACTGATGGCCTCAGGCTTTTTTAAGCACACACCCAGTATTGCCGTGACCCATTACCGCATGTGGATGACGCATGGAGACAAAAGGAAAGTGAGCTGAAAAACCAGAGGGAGGAAAAGTGGAATGGTGTGATGCTGAGCGTTCAGAAAGTGGCCAGATGAGCTCAGAGTTTCTGATTTAATGAATGTATGTGTGCGTGTGTGTGTGGTTGGGTCATATCTGAGACACTGTTCCACAGCAACAAAAACAATAAAATTCACTGTATTTTCTCCTAAAAAAAAAAAAAAAAAAAAAAAAAA")
@@ -544,27 +730,27 @@ def test_old_design():
     # x.add_similarity_constraint("h2", "H" * 72, (0.8, 1))
     # x.add_similarity_constraint("h1", "H" * 72, (0.8, 1))
 
-    x.parameters.f_stop = 0.05
-    x.log = "design_test.log"
+    # x.parameters.f_stop = 0.05
+    # x.log = "design_test.log"
 
-    y = x()
-    print(y)
+    # y = x()
+    # dump(y)
 
-    # print(x.to_json())
-    x = design.Specification(model=Model(), json=x.to_json())
-    # print(x.to_json())
-    print(len(x.complexes))
-    for tube in x.tubes:
-        print(tube.name, len(tube.targets))
+    # # dump(x.to_json())
+    # x = design.Specification(model=Model(), json=x.to_json())
+    # # dump(x.to_json())
+    # dump(len(x.complexes))
+    # for tube in x.tubes:
+    #     dump(tube.name, len(tube.targets))
 
-    y = x()
-    print(y)
-    # print(y.to_json())
+    # y = x()
+    # dump(y)
+    # dump(y.to_json())
     # y = design.RawResult(json=y.to_json())
-    # print(y.to_json())
-    # print([+i.normalized_defect/sum(+j.normalized_defect_contribution for j in i.complexes) for i in y.tubes])
+    # dump(y.to_json())
+    # dump([+i.normalized_defect/sum(+j.normalized_defect_contribution for j in i.complexes) for i in y.tubes])
     # defs = [i.normalized_defect for i in y.tubes]
-    # print(sum(defs)/len(defs))
+    # dump(sum(defs)/len(defs))
     # y = x.designer()
     # y.run().print_results()
 
@@ -572,13 +758,11 @@ def test_evaluate_wobble():
     my_model = Model(material='rna')
 
     seq1 = 'GGGGGAAACCCCC'
-    seq1_mfe = mfe(seq1, model=my_model)
-    st1 = str(seq1_mfe[0].structure) # (((((...)))))
+    st1 =  '(((((...)))))'
     ensemble_defect = defect(strands=seq1, structure=st1, model=my_model)
-    print(ensemble_defect)
+    dump(ensemble_defect)
 
     seq2 = 'GGGGGAAACCUCC'
-    seq2_mfe = mfe(seq2, model=my_model)
-    st2 = str(seq2_mfe[0].structure) # (((((...)))))
+    st2  = '(((((...)))))'
     ensemble_defect = defect(strands=seq2, structure=st2, model=my_model)
-    print(ensemble_defect)
+    dump(ensemble_defect)

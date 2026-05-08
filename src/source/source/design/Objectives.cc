@@ -3,8 +3,46 @@
 #include <nupack/types/Matrix.h>
 #include <nupack/state/State.h>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
+::nupack::json Objective::save_repr() const {
+    std::map<uint, string> mapped {
+            {0, "Multitube"},
+            {1, "Tube"},
+            {2, "Complex"},
+            {3, "SSM"},
+            {4, "Similarity"},
+            {5, "EnergyEqualization"},
+            {6, "Pattern"}
+            };
+
+    string type = mapped.at(variant.index());
+    return fork(variant, [&](auto const &x) {
+        ::nupack::json j;
+        j["type"] = type;
+        j["info"] = x;
+        return j;
+    });
+}
+
+// Mark: I wrote that this could be simplified at some point, but not sure it matters.
+void Objective::load_repr(::nupack::json value) {
+    std::map<string, Var> mapped {
+            {"Multitube", MultitubeObjective()},
+            {"Tube", TubeObjective()},
+            {"Complex", ComplexObjective()},
+            {"SSM", SSMObjective()},
+            {"Similarity", SimilarityObjective()},
+            {"EnergyEqualization", EnergyEqualizationObjective()},
+            {"Pattern", PatternObjective()}
+            };
+
+    auto type = value["type"].get<string>();
+    fork(mapped.at(type), [&](auto const &t) {
+        using obj_type = decay<decltype(t)>;
+        variant = value["info"].get<obj_type>();
+    });
+}
 
 void TubeObjective::initialize(Design const &design) {
     tube_id = find_tube(tube_name, design);
@@ -25,13 +63,13 @@ void PatternObjective::initialize(Design const &design) {
 
     for (auto const &p : patterns) {
         uint N = len(p);
-        grouped_patterns.try_emplace(N, vec<Sequence>());
+        grouped_patterns.try_emplace(N);
         at(grouped_patterns, N).emplace_back(p);
     }
 
     for (auto p: key_view(grouped_patterns))
     for (auto const &el : elements) {
-        auto n = fork(el, [](auto const &x) {return len(x);});
+        auto n = fork(el, len);
         if (n < p) continue;
         normalization += n - p + 1;
     }
@@ -39,33 +77,24 @@ void PatternObjective::initialize(Design const &design) {
 
 
 void SimilarityObjective::initialize(Design const &design) {
-    NUPACK_REQUIRE(len(component_names), ==, len(ref_seqs));
-    NUPACK_REQUIRE(len(component_names), ==, len(limits));
+    NUPACK_REQUIRE(sum(domains, len), ==, len(reference_sequence));
 
     /* 0.0 < lower limit < upper limit < 1.0 */
-    for (auto const & lim : limits) {
-        NUPACK_REQUIRE(lim.first, <, lim.second);
-        NUPACK_REQUIRE(0.0, <, lim.first);
-        NUPACK_REQUIRE(lim.second, <, 1.0);
-    }
+    NUPACK_REQUIRE(0.0, <=, limits.first);
+    NUPACK_REQUIRE(limits.second, <=, 1.0);
+    NUPACK_REQUIRE(limits.first, <=, limits.second);
 
-    elements = vmap(component_names, [&](auto const &n) { return find_sequence_element(design, n); });
-    zip(elements, ref_seqs, [](auto const &el, auto const &rs) {
-        auto el_len = fork(el, [](auto const &x) {return len(x);});
-        NUPACK_REQUIRE(el_len, ==, len(rs), "reference sequence and design element for SimilarityObjective are different lengths");
-    });
-    NUPACK_REQUIRE(len(component_names), ==, len(elements));
+    elements = vmap(domains, [&](auto const &d) {return std::get<DomainView>(find_sequence_element(design, d.name));});
 }
 
-
 void EnergyEqualizationObjective::initialize(Design const &design) {
-    for (auto const &name : domain_names) {
+    for (auto const &d : domains) {
         try {
-            domains.emplace_back(std::get<DomainView>(find_sequence_element(design, name)));
+            domain_views.emplace_back(std::get<DomainView>(find_sequence_element(design, d.name)));
         } catch (Error const &e) {
-            NUPACK_ERROR("Element is not a domain", name);
+            NUPACK_ERROR("Element is not a domain", d.name);
         } catch (std::bad_variant_access const &e) {
-            NUPACK_ERROR("Element is not a domain", name);
+            NUPACK_ERROR("Element is not a domain", d.name);
         }
     }
     model = at(design.complexes, 0).target.model;
@@ -73,9 +102,14 @@ void EnergyEqualizationObjective::initialize(Design const &design) {
 
 
 void SSMObjective::initialize(Design const &design) {
-    complex_ids = vmap<vec<uint>>(complex_names, [&](auto const &name) {
-        return find_complex(name, design);
-    });
+    if (complexes.empty()) {
+        for (auto const &c : design.complexes) if (c.target.has_structure()) complex_ids.emplace_back(find_complex(c.name, design));
+    } else {
+        complex_ids = vmap<vec<uint>>(complexes, [&](auto const &c) {
+            return find_complex(c.name, design);
+        });
+    }
+    NUPACK_ASSERT(!complex_ids.empty());
 
     add_identicals(design.sequences);
     add_complements(design.sequences);
@@ -84,22 +118,22 @@ void SSMObjective::initialize(Design const &design) {
     // BEEP(*this);
 }
 
-using custom_csp::IdentConstraint;
-using custom_csp::CompConstraint;
+// using custom_csp::IdentConstraint;
+// using custom_csp::CompConstraint;
 
-template <class T>
-void add_binary_relations(DesignSequence const &seqs, NucleotideRelationMap &container) {
-    for (auto const &c : seqs.constraints.handler.get_constraints()) {
-        auto ptr = maybe_get<T>(c);
-        if (ptr == nullptr) continue;
-        auto vars = ptr->get_constrained_vars();
-        NUPACK_REQUIRE(len(vars), ==, 2, "binary constraint should have two variables");
+// template <class T>
+// void add_binary_relations(DesignSequence const &seqs, NucleotideRelationMap &container) {
+//     for (auto const &c : seqs.constraints.handler.get_constraints()) {
+//         auto ptr = maybe_get<T>(c);
+//         if (ptr == nullptr) continue;
+//         auto vars = ptr->get_constrained_vars();
+//         NUPACK_REQUIRE(len(vars), ==, 2, "binary constraint should have two variables");
 
-        auto i = at(vars, 0), j = at(vars, 1);
-        container.at(i).emplace(j);
-        container.at(j).emplace(i);
-    }
-}
+//         auto i = at(vars, 0), j = at(vars, 1);
+//         container.at(i).emplace(j);
+//         container.at(j).emplace(i);
+//     }
+// }
 
 void SSMObjective::add_identicals(DesignSequence const &seqs) {
     /* add in reflexivity for consistent interface */
@@ -108,14 +142,14 @@ void SSMObjective::add_identicals(DesignSequence const &seqs) {
         identicals.emplace(ui, std::set<uint>{ui});
     }
 
-    add_binary_relations<IdentConstraint>(seqs, identicals);
+    // add_binary_relations<IdentConstraint>(seqs, identicals);
 }
 
 
 void SSMObjective::add_complements(DesignSequence const &seqs) {
     for (auto i : range(len(seqs.nucleotides))) { complements.emplace(uint(i), std::set<uint>{}); }
 
-    add_binary_relations<CompConstraint>(seqs, complements);
+    // add_binary_relations<CompConstraint>(seqs, complements);
 }
 
 
@@ -258,12 +292,12 @@ void SSMObjective::process_structures(Design const &design) {
 
 
 
-Defect MultitubeObjective::evaluate(Local const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &obs) const {
+Defect MultitubeObjective::evaluate(Env const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &obs) const {
     return design.normalized_defect(env, depth, part, {}, weights, obs);
 }
 
 
-Defect TubeObjective::evaluate(Local const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &, EngineObserver &obs) const {
+Defect TubeObjective::evaluate(Env const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &, EngineObserver &obs) const {
     auto const &tube = at(design.tubes, tube_id);
     auto log_pfuncs = design.log_pfuncs(env, depth, part, {}, obs);
     auto complex_defects = design.complex_defects(env, depth, part, {}, obs);
@@ -272,16 +306,16 @@ Defect TubeObjective::evaluate(Local const &env, Design const &design, uint dept
 }
 
 
-Defect ComplexObjective::evaluate(Local const &env, Design const &design, uint depth, EnsemblePartition const &, Weights const &, EngineObserver &obs) const {
+Defect ComplexObjective::evaluate(Env const &env, Design const &design, uint depth, EnsemblePartition const &, Weights const &, EngineObserver &obs) const {
     auto const &comp = at(design.complexes, complex_id);
     auto defect = comp.defect(env, design.models, design.sequence(), depth, {}, obs);
-    uint N = len(comp);
+    uint N = nt(comp);
     for (auto &i : defect.contributions) i.second /= N;
     return defect;
 }
 
 
-Defect PatternObjective::evaluate(Local const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &) const {
+Defect PatternObjective::evaluate(Env const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &) const {
     vec<real> defs(len(design.sequence()), 0.0);
 
     for (auto const &el : elements) {
@@ -297,8 +331,8 @@ Defect PatternObjective::evaluate(Local const &env, Design const &design, uint d
 
                 bool matched = any_of(ps, [&](auto const &p) {
                     bool all_matched = true;
-                    zip(sub_seq, p, [&](auto a, auto b) {
-                        if (!is_base_specialization(b, a)) all_matched = false;
+                    zip(sub_seq, p, [&](Base a, Wildcard b) {
+                        if (!b.includes(a)) all_matched = false;
                     });
                     return all_matched;
                 });
@@ -311,7 +345,6 @@ Defect PatternObjective::evaluate(Local const &env, Design const &design, uint d
     return Defect(defs, normalization);
 }
 
-
 /**
  * @brief determine whether each real sequence is above or below the matching
  * limits and penalize accordingly
@@ -323,40 +356,29 @@ Defect PatternObjective::evaluate(Local const &env, Design const &design, uint d
  * @return Defect average fraction of nucleotides not in similarity ranges out
  * of maximum number of nucleotides that could be incorrect.
  */
-Defect SimilarityObjective::evaluate(Local const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &) const {
-    real normalization = 0;
-    zip(ref_seqs, limits, [&](auto const &ref, auto const &lim) {
-        /* maximum number of nucleotides that can be incorrectly matched per sequence */
-        normalization += len(ref) * std::max(lim.first, 1.0 - lim.second);
+Defect SimilarityObjective::evaluate(Env const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &) const {
+    auto ref = reference_sequence.begin();
+    auto const matches = vmap(elements, [&](auto const &el) {
+        auto const seq = fork(el, [&](auto const &x) {return x.to_sequence(design.sequence());});
+        return vmap(seq, [&](Base s) -> uint {return (ref++)->includes(s);});
     });
-
-    vec<real> mapped_defects(len(design.sequence()), 0.0);
-    zip(elements, ref_seqs, limits, [&](auto const &el, auto const &ref, auto const &lim) {
-        auto seq = fork(el, [&](auto const &x) { return x.to_sequence(design.sequence()); });
-        vec<uint> matches(len(seq), 0);
-        zip(seq, ref, matches, [](auto const &s, auto const &r, auto &m) {
-            m = is_base_specialization(r, s);
-        });
-
-        real num_matches = sum(matches);
-        real N = len(seq);
-        real frac = num_matches / N;
-        auto indices = fork(el, [&](auto const &x) { return x.to_indices(); });
-        if (frac < lim.first) { // need more matches
-            auto per_nuc = (lim.first - frac) / frac;
-            zip(indices, matches, [&](auto i, auto m) { if (!m) at(mapped_defects, i) += per_nuc; });
-        } else if (frac > lim.second) { // need fewer matches
-            auto per_nuc = (frac - lim.second) / frac;
-            zip(indices, matches, [&](auto i, auto m) { if (m) at(mapped_defects, i) += per_nuc; });
-        }
-    });
+    NUPACK_ASSERT(ref == reference_sequence.end());
+    
+    real const N = len(reference_sequence), l = limits.first * N, u = limits.second * N;
+    real const x = sum(indirect_view(matches, [](auto const &m) {return sum(m);}));
 
     defect_vec defs;
-    izip(mapped_defects, [&](auto i, auto d) {if (d > 0) defs.emplace_back(i, d / normalization);});
-
+    if (x < l || x > u) {
+        vec<real> mapped_defects(len(design.sequence()), 0.0);
+        real const per_nuc = (x < l ? (l - x) / (N - x) : (x - u) / x) / max(l, N - u);
+        zip(elements, matches, [&](auto const &el, auto const &matches) {
+            auto const indices = fork(el, [&](auto const &x) {return x.to_indices();});
+            zip(indices, matches, [&](auto i, auto m) {if (m == (x > u)) at(mapped_defects, i) += per_nuc;});
+        });
+        izip(mapped_defects, [&](auto i, auto d) {if (d > 0) defs.emplace_back(i, d);});
+    }
     return {defs};
 }
-
 
 /**
  * @brief the sum of the absolute distances from either the median energy or the
@@ -368,7 +390,7 @@ Defect SimilarityObjective::evaluate(Local const &env, Design const &design, uin
  * @param part ignored
  * @return Defect measure of how close to reference energy / median energy
  */
-Defect EnergyEqualizationObjective::evaluate(Local const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &) const {
+Defect EnergyEqualizationObjective::evaluate(Env const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &) const {
     /* convert to duplex of length l */
     auto pl = [](uint l) -> PairList {
         std::ostringstream ss;
@@ -378,9 +400,9 @@ Defect EnergyEqualizationObjective::evaluate(Local const &env, Design const &des
 
     /* compute energies for each of the domains + their complements using
     structure_energy */
-    vec<real> v_energies = vmap<vec<real>>(domains, [&](auto const &domain) {
+    vec<real> v_energies = vmap<vec<real>>(domain_views, [&](auto const &domain) {
         auto seq = domain.to_sequence(design.sequence());
-        vec<Sequence> seqs = {seq, reverse_complement(seq)};
+        SequenceList seqs = {seq, model.alphabet().reverse_complement(seq)};
         return structure_energy(seqs, pl(len(seq)), model);
     });
     real_col energies(v_energies);
@@ -400,7 +422,7 @@ Defect EnergyEqualizationObjective::evaluate(Local const &env, Design const &des
 
     /* equally split defect per domain into component nucleotides */
     vec<real> mapped_defects(len(design.sequence()), 0.0);
-    zip(domains, per_domain, [&] (auto const &d, auto p) {
+    zip(domain_views, per_domain, [&] (auto const &d, auto p) {
         p = p / len(d);
         for (auto i : d.to_indices()) at(mapped_defects, i) += p;
     });
@@ -422,7 +444,7 @@ Defect EnergyEqualizationObjective::evaluate(Local const &env, Design const &des
  * @param part ignored
  * @return Defect number of spurious appearances of the same sequence
  */
-Defect SSMObjective::evaluate(Local const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &) const {
+Defect SSMObjective::evaluate(Env const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &) const {
     std::map<Sequence, Index_Map> critons;
 
     auto create_or_expand = [&](auto const &seq, auto const &inds) {
@@ -434,8 +456,8 @@ Defect SSMObjective::evaluate(Local const &env, Design const &design, uint depth
     for (auto const &word : words) {
         Sequence seq = Sequence(vmap(word, [&](auto i) { return at(sequences, i); }));
         create_or_expand(seq, word);
-        if (complement_restricted.count(word) && !is_palindromic(seq)) {
-            create_or_expand(reverse_complement(seq), word);
+        if (complement_restricted.count(word) && !design.sequences.alphabet.is_palindromic(seq)) {
+            create_or_expand(design.sequences.alphabet.reverse_complement(seq), word);
         }
     }
 
@@ -450,7 +472,7 @@ Defect SSMObjective::evaluate(Local const &env, Design const &design, uint depth
         ind_map.resolve_groups(*this);
 
         /* find number of distinct conflicting underlying variables with same sequence */
-        if (is_palindromic(seq)) ind_map.num_violations += 1;
+        if (design.sequences.alphabet.is_palindromic(seq)) ind_map.num_violations += 1;
 
         real increment = ind_map.assign_blame(mapped_defects);
         // if (increment > 0) BEEP(seq, ind_map);
@@ -504,19 +526,19 @@ real Index_Map::assign_blame(vec<real> &defects) const {
 }
 
 
-Optional<Defect> MultitubeObjective::reevaluate(Local const &env,
+Optional<Defect> MultitubeObjective::reevaluate(Env const &env,
         Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &obs) const {
     return evaluate(env, design, depth, part, weights, obs);
 }
 
 
-Optional<Defect> TubeObjective::reevaluate(Local const &env,
+Optional<Defect> TubeObjective::reevaluate(Env const &env,
         Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &obs) const {
     return evaluate(env, design, depth, part, weights, obs);
 }
 
 
-Optional<Defect> ComplexObjective::reevaluate(Local const &env,
+Optional<Defect> ComplexObjective::reevaluate(Env const &env,
         Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &obs) const {
     return evaluate(env, design, depth, part, weights, obs);
 }
@@ -531,13 +553,13 @@ void Objective::initialize(Design const &design) {
     fork(variant, [&](auto &x) { x.initialize(design); });
 }
 
-Defect Objective::evaluate(Local const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &obs) const {
+Defect Objective::evaluate(Env const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &obs) const {
     return fork(variant, [&](auto const &x) {
         return x.evaluate(env, design, depth, part, weights, obs);
     });
 }
 
-Optional<Defect> Objective::reevaluate(Local const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &obs) const {
+Optional<Defect> Objective::reevaluate(Env const &env, Design const &design, uint depth, EnsemblePartition const &part, Weights const &weights, EngineObserver &obs) const {
     return fork(variant, [&](auto const &x) {
         return x.reevaluate(env, design, depth, part, weights, obs);
     });
@@ -546,4 +568,4 @@ Optional<Defect> Objective::reevaluate(Local const &env, Design const &design, u
 
 
 
-}}
+}

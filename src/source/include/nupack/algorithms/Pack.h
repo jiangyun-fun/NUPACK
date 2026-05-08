@@ -6,12 +6,14 @@
  * @date 2018-05-31
  */
 #pragma once
+#include "TypeSupport.h"
 #include "Constants.h"
 
 namespace nupack {
 
 /// A lightweight ordered container of types
 template <class ...Ts> struct pack {
+    using first = type_at<0, Ts...>;
     /// Element access by index
     template <std::size_t I>
     using type = type_at<I, Ts...>;

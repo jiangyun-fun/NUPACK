@@ -3,7 +3,6 @@ Program-wide constants and functions for dealing with nucleic acid sequences and
 '''
 from .utility import can_convert
 from . import core
-from . import rotation
 from .rebind import forward
 
 import re
@@ -11,11 +10,12 @@ from typing import Callable, List, Tuple, Dict
 import numpy as np
 
 ZeroCinK = float
-DefaultTemperature = float
-BoltzmannConstant = float
-GitBranch = str
-GitRevision = str
-Version = str
+default_temperature = float
+boltzmann_constant = float
+git_branch = str
+git_revision = str
+version = str
+build_type = str
 
 ##########################################################################
 
@@ -23,15 +23,13 @@ Bases = dict(DNA=tuple('ACGT'), RNA=tuple('ACGU'))
 Pairs = dict(DNA=dict('AT CG GC TA'.split()), RNA=dict('AU CG GC UA'.split()))
 
 def reverse_complement(sequence, material='DNA'):
-    get = Pairs[material].__getitem__
-    return ''.join(map(get, reversed(sequence)))
+    return ''.join(map(Pairs[material].__getitem__, reversed(sequence)))
 
 ##########################################################################
 
 def random_sequence(n, material='DNA', gc=0.5):
     p = 0.5 * np.asarray((1-gc, gc, gc, 1-gc), dtype=np.float64)
-    get = Bases[material].__getitem__
-    return ''.join(map(get, np.random.choice(4, n, p=p)))
+    return ''.join(map(Bases[material].__getitem__, np.random.choice(4, n, p=p)))
 
 ##########################################################################
 
@@ -41,33 +39,13 @@ def dp_to_pairs(dpp_string) -> Tuple[int, ...]:
 
 ##########################################################################
 
-def as_sequences(seqs):
-    if isinstance(seqs, str):
-        seqs = re.split('[+, ]+', seqs)
-    return tuple(i for i in seqs if i)
-
-##########################################################################
-
 @forward
-def rotational_symmetry(indices) -> int:
-    '''Rotational symmetry of a list of sequences'''
-
-@forward
-def compute_necklaces(callback: Callable[[List[int]], None], *, size, n_elements) -> int:
-    '''compute necklaces and pass them to callback function'''
-
-
-def complexes_from_max_size(strands, max_size):
-    complexes = set()
-
-    def add_perm(l):
-        names = tuple(rotation.lowest_rotation([strands[i] for i in l]))
-        complexes.add(names)
-
-    for i in range(1, max_size+1):
-        compute_necklaces(add_perm, n_elements=len(strands), size=i)
-
-    return complexes
+def run_length_encoding(string, minimum_run=3):
+    '''
+    Return a run length encoded version of a string
+    Only runs of length >= minimum_run will be run length encoded
+    Return unmodified string if minimum_run < 2
+    '''
 
 ##########################################################################
 

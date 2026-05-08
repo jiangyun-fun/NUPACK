@@ -1,12 +1,14 @@
 #pragma once
 #include "../common/Config.h"
 #include "../common/Random.h"
+#include "../reflect/Reflection.h"
+#include "../algorithms/Macro.h"
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 struct DesignParameters {
-    /** seed for the StaticRNG; 0 is sentinel value indicating that Static_RD should be used */
-    uint rng_seed {0};
+    /** seed for the StaticRNG; 0 is sentinel value indicating that StaticDevice should be used */
+    std::size_t seed {0};
     /** stop condition (attempt to find sequence with defect lower than this) */
     real f_stop {0.02};
     /** the fraction of the stop condition to allocate to off-targets in passive
@@ -49,6 +51,13 @@ struct DesignParameters {
      * the full root ensemble defect and the focused ensemble defect estimate
      * that is allowed to remain after refocusing. */
     real f_refocus {0.03};
+    /**
+     * The cutoff for ppairs that make it from the dense pair probability matrix
+     * into the sparse matrices used during design.
+     */
+    real f_sparse {0.00001};
+    // Approximate max time for a design in seconds
+    real max_time {0};
     /** number of bytes of RAM split evenly amongst the models in the design for their caches
      */
     std::size_t cache_bytes_of_RAM {0};
@@ -69,34 +78,22 @@ struct DesignParameters {
     string decomposition_log {};
     string thermo_log {};
 
-    std::map<string, string> log_file_paths() const {
-        std::map<string, string> paths;
-        if (!log.empty()) paths.emplace("basic", log);
-        if (!decomposition_log.empty()) paths.emplace("decomposition", decomposition_log);
-        if (!thermo_log.empty()) paths.emplace("thermo", thermo_log);
-        return paths;
-    }
-
-    /**
-     * The cutoff for ppairs that make it from the dense pair probability matrix
-     * into the sparse matrices used during design.
-     */
-    real f_sparse {0.00001};
-
     /**
      * For profiling; allows running all thermodynamics code a multiple of times
      * to disentangle design from thermo time contributions
      */
     uint slowdown {0};
 
-    // Set the global seed based on the one held here. Do not change the one held here.
-    void init_rng() const;
+    bool wobble_mutations = false;
 
-    NUPACK_REFLECT(DesignParameters, rng_seed, f_stop, f_passive, H_split, N_split, f_split,
+    // Set the global seed based on the one held here. Do not change the one held here.
+    [[nodiscard]] std::size_t init_rng() const;
+
+    NUPACK_REFLECT(DesignParameters, seed, f_stop, f_passive, H_split, N_split, f_split,
             f_stringent, dG_clamp, M_bad, M_reseed, M_reopt, f_redecomp, f_refocus,
             cache_bytes_of_RAM, f_sparse, slowdown, log, decomposition_log, thermo_log,
-            time_analysis);
+            time_analysis, max_time, wobble_mutations);
 };
 
 
-}}
+}

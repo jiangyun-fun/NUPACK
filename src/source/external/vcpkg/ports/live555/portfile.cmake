@@ -1,33 +1,30 @@
-vcpkg_check_linkage(ONLY_STATIC_LIBRARY) 
+vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 
-if(NOT VCPKG_USE_HEAD_VERSION)
-    # Live555 only makes the latest releases available for download on their site
-    message(FATAL_ERROR "Live555 does not have persistent releases. Please re-run the installation with --head.")
-endif()
-
-set(LIVE_VERSION latest)
-
+string(REPLACE "-" "." format_version ${VERSION})
 vcpkg_download_distfile(ARCHIVE
-    URLS "http://www.live555.com/liveMedia/public/live555-${LIVE_VERSION}.tar.gz"
-    FILENAME "live555-${LIVE_VERSION}.tar.gz"
-    SKIP_SHA512
+    URLS "http://live555.com/liveMedia/public/live.${format_version}.tar.gz"
+    FILENAME "live.${format_version}.tar.gz"
+    SHA512 ee2bf17d2803c4bb6f49408a123de9238273749b9c110113facbf78eb01b9961bbd04178335f40d36425c9f96a26ee3da57e970f86d4912b4ec42ab6f4b2c7e9
 )
 
-vcpkg_extract_source_archive_ex(
-    OUT_SOURCE_PATH SOURCE_PATH
-    ARCHIVE ${ARCHIVE} 
+vcpkg_extract_source_archive(
+    SOURCE_PATH
+    ARCHIVE "${ARCHIVE}"
     PATCHES
         fix-RTSPClient.patch
+        fix_operator_overload.patch
 )
 
-file(COPY ${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt DESTINATION ${SOURCE_PATH})
+file(COPY "${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt" DESTINATION "${SOURCE_PATH}")
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
+vcpkg_copy_pdbs()
+
+vcpkg_cmake_config_fixup(PACKAGE_NAME unofficial-live555)
 
 file(GLOB HEADERS
     "${SOURCE_PATH}/BasicUsageEnvironment/include/*.h*"
@@ -36,7 +33,5 @@ file(GLOB HEADERS
     "${SOURCE_PATH}/UsageEnvironment/include/*.h*"
 )
 
-file(COPY ${HEADERS} DESTINATION ${CURRENT_PACKAGES_DIR}/include)
-file(INSTALL ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
-
-vcpkg_copy_pdbs()
+file(COPY ${HEADERS} DESTINATION "${CURRENT_PACKAGES_DIR}/include")
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/COPYING")

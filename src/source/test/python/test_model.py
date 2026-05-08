@@ -15,10 +15,14 @@ def test_stack_energy():
             seqs = [i[0] + j[0], j[1] + i[1]]
             s += '%d ' % int(100*mod.loop_energy(seqs))
         s += '\n'
-    return s
+    # return s
 
 def test_structure_energy():
     model = nu.Model(ensemble='some-nupack3', material='rna95-nupack3')
     assert model.structure_energy('CCCCTTTGGGG', '((((...))))') == -4.6
     assert model.structure_energy('GGAAACC', '.(...).') == 3.3
     assert abs(nu.Model(ensemble='stacking', material='rna95-nupack3').structure_energy('GGAAACC', '.(...).') - 2.7239996321033035) < 1e-8
+
+def test_loop_energy():
+    model = nu.Model(ensemble='some-nupack3', material='rna95-nupack3')
+    assert nu.loop_energy('AAAA', structure='....', model=model) == 0

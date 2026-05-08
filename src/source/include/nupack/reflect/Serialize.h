@@ -1,8 +1,13 @@
 #pragma once
+#if NUPACK_DEBUG
+#   define JSON_DIAGNOSTICS 1
+#endif
+
 #include <nlohmann/json.hpp>
 
 #include "../standard/Variant.h"
 #include "../standard/Map.h"
+#include "../standard/Enum.h"
 #include "../standard/Ptr.h"
 #include "../standard/Optional.h"
 #include "../reflect/Reflection.h"
@@ -237,6 +242,23 @@ struct adl_serializer<T, nupack::void_if<(nupack::is_nupack<T> && nupack::has_re
 };
 
 /******************************************************************************************/
+
+template <class T>
+struct adl_serializer<std::complex<T>> {
+    static void to_json(json &j, std::complex<T> const &t) {j = std::array<T, 2>{t.real(), t.imag()};}
+    static void from_json(json const &j, std::complex<T> &t) {
+        auto x = j.get<std::array<T, 2>>();
+        t = std::complex<T>(x[0], x[1]);
+    }
+};
+
+/******************************************************************************************/
+
+template <class T>
+struct adl_serializer<T, std::enable_if_t<std::is_enum_v<T>>> {
+    static void to_json(json &j, T const &t) {j = nupack::enum_to_string(t);}
+    static void from_json(json const &j, T &t) {t = nupack::enum_from_string<T>(j.get<std::string>());}
+};
 
 }
 

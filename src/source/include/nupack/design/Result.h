@@ -2,7 +2,7 @@
 #include "DesignComponents.h"
 #include "OutputResult.h"
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 
 /**
@@ -20,6 +20,7 @@ struct Result {
     NUPACK_REFLECT(Result, sequence, defects, weights, evaluated);
 
     Result() = default;
+    Result(Sequence s, vec<Defect> d, vec<real> w) : sequence(std::move(s)), defects(std::move(d)), weights(std::move(w)) {}
 
     /** @brief forward to first Defect::total */
     Defect defect(uint i=0) const;
@@ -32,7 +33,7 @@ struct Result {
     real total() const;
     real weighted_total() const;
 
-    SingleResult const & full_evaluation(Designer const &) const;
+    SingleResult const & full_evaluation(Env const &, Designer const &) const;
 
     bool operator<(Result const &other) const;
     bool operator>(Result const &other) const;
@@ -40,7 +41,7 @@ struct Result {
     bool operator!=(Result const &other) const;
 };
 
-static Result const inf_result{{}, {defect_vec(1, std::make_pair(uint(0), std::numeric_limits<real>::infinity()))}, {1.0}, {}};
+static Result const inf_result({}, {defect_vec(1, std::make_pair(uint(0), std::numeric_limits<real>::infinity()))}, {1.0});
 
 vec<uint> first_defect_sample(Result const &res, uint num=1);
 vec<uint> stochastic_hierarchical_sample(Result const &res, uint num=1);
@@ -78,5 +79,4 @@ struct DesignState {
 
 using ResultState = DesignState<Result>;
 
-} // newdesign
-} // nupack
+} // design

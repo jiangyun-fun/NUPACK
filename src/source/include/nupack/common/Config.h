@@ -8,12 +8,19 @@
 #pragma once
 
 #include <cstddef>
+#include <cstdint>
 #include <cstring>
 #include <string>
 #include <string_view>
 #include <iomanip>
 #include <complex>
 #include <limits>
+#include <vector>
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#include <boost/container/small_vector.hpp>
+#pragma clang diagnostic pop
 
 /******************************************************************************************/
 
@@ -40,18 +47,22 @@ namespace nupack {
 
 /// Some simple default types for use across the whole project
 using real         = double;
+
 using real32       = float;
+static_assert(sizeof(real32) == 4);
+
 using real64       = double;
+static_assert(sizeof(real64) == 8);
+
 using string       = std::string;
 using string_view  = std::string_view;
 
 using namespace std::string_literals;
 
-using uint         = unsigned int;
-using ushort       = unsigned short;
+using uint         = std::uint32_t;
 using complex_real = std::complex<real>;
 
-using iseq         = unsigned int;
+using iseq         = std::uint32_t;
 static_assert(std::numeric_limits<iseq>::max() >= 1e6, "iseq constrains maximum sequence length");
 
 using usize        = std::size_t;
@@ -59,13 +70,29 @@ static_assert(sizeof(usize) >= sizeof(std::size_t), "usize should be at least si
 
 /******************************************************************************************/
 
+template <class T, int N=-1, class Alloc=std::allocator<T>>
+using small_vec = boost::container::small_vector<T, N == -1 ? 16/sizeof(T) : N, Alloc>;
+
+// Vector class for type T, suggested length N, allocator Alloc
+template <class T, int N=-1, class Alloc=std::allocator<T>>
+using vec = std::conditional_t<(N == -1 && sizeof(T) <= 4) || (N * sizeof(T) <= 40),
+    small_vec<T, N, Alloc>, std::vector<T, Alloc>>;
+
+template <class T>
+using default_vec = vec<T>;
+
+/******************************************************************************************/
+
 /// Some string values that will be set by CMake
-extern string const GitRevision, GitBranch, Version;
+extern string const GitRevision, GitBranch, Version, BuildType;
 extern string DefaultParametersPath, DefaultDataPath, MatlabCommand, MathematicaCommand;
+
 /// Number of logical CPU cores - you can change this if desired
 extern unsigned int TotalCPU;
+
 /// Total RAM in bytes - you can change this if desired
 extern std::size_t TotalRAM;
+
 /// Print backtraces in exceptions
 extern bool DebugInfo;
 
@@ -90,5 +117,8 @@ extern bool DebugInfo;
 #endif
 
 /******************************************************************************************/
+
+static constexpr std::size_t CharCapacity = std::size_t(std::numeric_limits<unsigned char>::max()) + 1;
+static_assert(CharCapacity == 256);
 
 }

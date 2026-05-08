@@ -2,215 +2,161 @@
 #include "Backtrack.h"
 #include "Action.h"
 #include "../types/Complex.h"
+#include "../standard/Deque.h"
+#include "../standard/Set.h"
+#include "../iteration/Spreadsort.h"
 
 // mfe information manipulated externally when pushing segments onto stack
+namespace nupack::thermo {
 
-namespace nupack { namespace thermo {
+/******************************************************************************************/
 
-template <class T>
-struct Partial_Structure : PairList {
-    Priority_Queue<Segment, typename Segment::Compare> segments;
-    T mfe;
-    real32 tiebreaker {random_float<real32>()};
+struct SuboptQueue {
+    /// Ordered map from segment to which structures contains it (needs to be ordered)
+    using StructureIndex = std::uint32_t;
+    using SegmentMap = std::map<Segment, vec<StructureIndex>>;
+    // Set of strand segments, compared by address
+    using SegmentIter = typename SegmentMap::iterator;
+    struct Hash {
+        std::size_t operator()(SegmentIter const &it) const {return hash_of(&*it);}
+    };
+    struct Equal {
+        bool operator()(SegmentIter const &a, SegmentIter const &b) const {return &*a == &*b;}
+    };
+    using SegmentSet = std::unordered_set<typename SegmentMap::iterator, Hash, Equal>;
 
-    Partial_Structure() = default;
-    Partial_Structure(iseq s) : PairList(s) {}
-
-    struct Compare {
-        bool operator()(Partial_Structure const & a, Partial_Structure const & b) const {
-            if (a.no_segments() && b.no_segments())
-                return std::make_tuple(a.mfe, a.tiebreaker) < std::make_tuple(b.mfe, b.tiebreaker);
-            else if (a.no_segments()) return false;
-            else if (b.no_segments()) return true;
-            else if (a.segments.top() == b.segments.top()) return a.tiebreaker < b.tiebreaker;
-            return Segment::Compare()(a.segments.top(), b.segments.top());
-        }
+    struct Structure {
+        PairList structure;
+        SegmentSet segments; // remaining segments that are unrecursed for this structure
+        real gap; // minimum energy of this structure - MFE
     };
 
-    void update_tiebreaker() {tiebreaker = random_float<real32>();}
+    std::deque<Structure> structures; //< list of structures and their current segments (deque is good for large number of structures and not invalidating references)
+    Triangle<SegmentMap> segment_maps; //< segment map for each strand block (segment -> list of containing structures)
+    SequenceList sequences; //< list of all the sequences (a constant)
 
-    void pop(Segment const &seg, T energy) {
-        auto blah = segments.pop();
-        NUPACK_REQUIRE(blah, ==, seg, seg, energy);
-        mfe -= energy;
+    SuboptQueue(SequenceList k) : segment_maps(k.size()), sequences(std::move(k)) {}
+
+    // put a new structure from its root structure, its strand segments, and its energy difference
+    template <class V>
+    void add_structure(StructureIndex t, V const &s_iters, real diff) {
+        // Put in new structure with copies of segments from root structure and an updated gap
+        auto const new_index = structures.size();
+        auto &new_structure = structures.emplace_back(structures[t]);
+        new_structure.gap += diff;
+
+        // Add new segments to the created strucutre
+        new_structure.segments.insert(s_iters.begin(), s_iters.end());
+
+        // Put new structure in each of segment's sets
+        for (auto const &iter : new_structure.segments)
+            iter->second.emplace_back(new_index);
     }
 
-    template <class Block, class El>
-    void push_segment(Block const &block, El const &t) {
-        auto mems = members_of(block);
-        for_each_index(Block::backtracks(), [&](auto I) {
-            if (at_c(mems, I).has(t)) {
-                auto lims = minmax(at_c(mems, I).indices_of(t));
-                NUPACK_REQUIRE(*at_c(mems, I)(lims[0], lims[1]), ==, value_of(t));
-                Segment s{lims[0], lims[1], at_c(names_of(block), I), -int{decltype(I)::value}};
-                segments.push(s);
-            }
-        });
+    auto length() const {return segment_maps.length();}
+
+    void initialize(Segment s, PairList p) {
+        auto iter = segment_maps(0, length() - 1).try_emplace(s).first;
+        iter->second.emplace_back(0);
+        structures.emplace_back(Structure{std::move(p), SegmentSet{iter}, 0});
     }
 
-    bool no_segments() const {return segments.empty();}
-
-    void print_segments() const {
-        for (auto const &s : segments) {
-            std::cout << s << ", ";
-        }
-        std::cout << std::endl;
+    SegmentIter emplace(StrandSegment const &s) {
+        NUPACK_QUICK_REQUIRE(s.i, <, len(sequences[s.left]));
+        NUPACK_QUICK_REQUIRE(s.j, <, len(sequences[s.right]));
+        return segment_maps(s.left, s.right).try_emplace(s).first;
     }
-};
 
-/******************************************************************************************/
+    template <class Constants>
+    void pop(SegmentMap &q, StrandSegment const s, Constants const &c, real const gap) {
+        auto const iter = std::prev(q.end());
+        NUPACK_QUICK_REQUIRE(iter->first, ==, static_cast<Segment const &>(s));
+        vec<StructureIndex> v = std::move(iter->second); // list of structures containing the segment
+        NUPACK_ASSERT(!std::empty(v));
+        spreadsort_float_map(v, [&](auto i) {return structures[i].gap;}); // sort structures by mfe differentials
 
-template <class Block, class Queue, class Finished, class Model, class P>
-void subopt_element(Block const &block, Complex const &sequence, Model const &model, Queue &queue, Finished &finished, Segment const & seg, P const &p, real cutoff) {
-    auto seqs = sequence.strands_included(seg.i, seg.j);
-    if (seqs.multi()) subopt_element(block, model, queue, finished, seg, p, MultiStrand(), seqs, cutoff);
-    else subopt_element(block, model, queue, finished, seg, p, SingleStrand(), seqs, cutoff);
-}
+        // The first-encountered MFE structure is handled separately
+        small_vec<SegmentIter, 2> best;
 
-template <class Block, class Queue, class Model, class Finished, class P, class N, class S>
-void subopt_element(Block const &block, Model const &model, Queue &queue, Finished &finished, Segment const & seg, P const &p, N, S const &s, real cutoff) {
-    auto partial = view(p);
-    using A = SuboptAlgebra<typename Model::rig_type>;
-    bool found_one = false;
+        // go through each structure and pop this segment
+        for (auto const i : v) structures[i].segments.erase(iter);
 
-    for_each_index(Block::backtracks(), [&](auto I) {
-        if (at_c(Block::names(), I) != seg.type) return;
-        auto const rule = at_c(Block::recursions(), I);
+        q.erase(iter); // remove segment
 
-        auto select = [&](auto &&result_f, auto const &...ts) {
-            auto result = result_f(Zero());
+        backtrack(c.block, s, [&](auto const &m, auto const value) {
+            NUPACK_ASSERT(std::isfinite(value), value, s);
+            // Numerical precision issues probably only happens in fast interior loops.
+            // But easier to just redo the recursion so we don't have this issue
+            auto min_observed_value = inf<decltype(value)>();
+            c.recurse(m.expression(c.multi(), s.i, s.j, c), c.one(), [&](auto const alt, auto const &...ns) {
+                min_eq(min_observed_value, alt);
+                return False();
+            });
+            NUPACK_QUICK_REQUIRE(abs(min_observed_value - value), <, 1e-2, min_observed_value, value, s);
 
-            NUPACK_REQUIRE(len(partial), >, 0);
-            if (front(partial).mfe + result < cutoff) {
-                found_one = true;
-                // following line needed in general because partial structures
-                // with same top element can have different mfe values.
-                auto it = lower_bound(partial.offset(1), cutoff, [result](auto const &a) {return a.mfe + result;});
-                for (auto v : view(begin_of(partial), it)) {
-                    v.mfe += result;
-                    v.update_tiebreaker();
-                    NUPACK_UNPACK(v.push_segment(block, ts));
-                    if (v.no_segments()) {finished.push(v);}
-                    else queue.push(v);
+            bool best_done = false;
+            c.recurse(m.expression(c.multi(), s.i, s.j, c), c.one(), [&](auto const alt, auto const &...ns) {
+                // keep track of the actually observed minimum value in rare cases of precision issues
+                // difference between the alternate substructure and the minimum one
+                // it should be non-negative but might drift a tiny bit negative due to floating point precision
+                auto const diff = alt - min_observed_value;
+                bool const same = diff <= 0;
+
+                // if the most stable structure can't hold this within gap, then short-circuit
+                if (!same && gap < structures[front(v)].gap + diff) return false;
+                NUPACK_ASSERT(std::isfinite(diff), diff, alt, value, min_observed_value, s);
+
+                if (same && !best_done) {
+                    // every structure is compatible because no energy cost is being introduced. Hold these segments for later.
+                    best.reserve(sizeof...(ns));
+                    (best.emplace_back(emplace(StrandSegment(ns, s.left, s.right))), ...);
+                    best_done = true;
+                    if (gap < 0) return true;
+                } else if (gap >= 0) {
+                    // get iterators for each segment of ns...
+                    std::array<SegmentIter, sizeof...(ns)> const iters{emplace(StrandSegment(ns, s.left, s.right))...};
+
+                    auto n = same ? v.size() : lower_bound(view(v).offset(1), gap - diff, [&](auto i) {return structures[i].gap;}) - v.begin();
+
+                    // add new structures as copies of v, modified energy, new segments
+                    for (auto i : view(v, 0, n)) add_structure(i, iters, diff);
                 }
-            }
-            return False();
-        };
+                return false;
+            });
+            NUPACK_ASSERT(best_done, "missing optimal structure", s, value, min_observed_value, gap);
+        });
 
-        auto subblock = block.subsquare(span{s.offset, s.offset + len(s)});
-        A::recurse(select, rule(seg.i-s.offset, seg.j-s.offset, N(), A(), subblock, s, model, DefaultAction()));
-    });
-    NUPACK_ASSERT(found_one, "No substructure matched the intermediate MFE value", seg);
-}
-
-/******************************************************************************************/
-
-
-/******************************************************************************************/
-
-template <template <class...> class Queue, class Block, class Model>
-struct Subopt_Iterator {
-    using element_type = std::pair<PairList, real>;
-
-    Subopt_Iterator(Block const &_block, Complex const &_sequence,
-                    Model const &_model, real gap, bool _print_segments) :
-            block(_block), sequence(_sequence), model(_model), cutoff(0.0),
-            print_segments(_print_segments) {
-
-        // for allowing structures with energy mfe + gap to be included.
-        real bump = 1.0e-3; // 1e-4 in NUPACK 3, found that on large sequence it could sometimes fail
-        auto total_mfe = get_element(block, 0, len(sequence)-1, "Q");
-        cutoff = total_mfe + gap + bump;
-
-        // begin queue
-        Segment init {0, len(sequence)-1, "Q", -4};
-        Partial_Structure<real> first(len(sequence));
-        first.segments.push(init);
-        first.mfe = total_mfe;
-        queue.push(first);
+        if (!best.empty()) { // all structures compatible with the list of segments in first
+            for (auto const &s : best) extend(s->second, v); // put all structures into each segment
+            for (auto t : v) structures[t].segments.insert(best.begin(), best.end()); // put each segment into all structures
+        }
     }
 
-    bool done() {return fully_specified.empty() && !can_advance();}
+    auto prefix(uint n) const {return sum(view(sequences, 0, n), len);}
 
-    Subopt_Iterator & operator++() {
-        next();
-        return *this;
-    }
+    template <class Constants>
+    [[nodiscard]] bool consume(real gap, std::size_t max, Constants const &c, uint l, uint r) {
+        auto const i_start = prefix(l), j_start = prefix(r);
+        SegmentMap &q = segment_maps(l, r);
 
-    element_type & operator*() {
-        return current;
-    }
+        while (!q.empty() && structures.size() <= max) {
+            StrandSegment cur(l, r, back(q).first);
 
-    static element_type sentinel() {
-        return element_type{PairList(), std::numeric_limits<real>::infinity()};
-    }
+            /* samples are updated on pop of "B" matrix element. If coaxial stacking and
+            dangle states are eventually captured, which will need to be done at
+            the time Segments are pushed, this logic should be moved to the same
+            point for consistency.
+            */
+            if (cur.priority == B.priority())
+                for (auto t : back(q).second)
+                    structures[t].structure.add_pair(i_start + cur.i, j_start + cur.j);
 
-private:
-    void next() {
-        while (fully_specified.empty() && can_advance()) advance();
-        if (fully_specified.empty()) return;
-
-        auto s = fully_specified.pop();
-        current = {s, model.complex_result(s.mfe, sequence.views())};
-    }
-
-    void advance() {
-        auto cur = queue.pop();
-        auto seg = cur.segments.top();
-        auto energy = get_element(block, seg.i, seg.j, seg.type);
-        if (print_segments) {
-            print("popping: ", seg, "energy: ", energy);
-            print("unfinished structures: ", len(queue));
+            pop(q, std::move(cur), c, gap);
         }
 
-        vec<Partial_Structure<real>> cur_structures = {cur};
+        return q.empty();
+    }
 
-        while (queue(seg, queue)) {
-            throw_if_signal();
-            auto struc = queue.pop();
-            cur_structures.push_back(struc);
-        }
-
-        for (auto & c : cur_structures) c.pop(seg, energy);
-
-        if (seg.type == "B") for (auto & s : cur_structures) {s.add_pair(seg.i, seg.j);}
-        subopt_element(block, sequence, model, queue, fully_specified, seg, cur_structures, cutoff);
-    } // this should be the main loop of subopt_block
-
-    bool can_advance() {return !queue.empty();}
-
-    Queue<Partial_Structure<real>, typename Partial_Structure<real>::Compare> queue;
-    Stack<Partial_Structure<real>> fully_specified;
-    // element_type current;
-    element_type current {sentinel()};
-
-    Block const &block;
-    Complex const &sequence;
-    Model const &model;
-
-    real cutoff;
-    bool print_segments;
 };
 
-template <template <class...> class Queue, class Block, class Model>
-auto subopt_iterator(Block const &block, Complex const &sequence, Model const &model, real gap=0.0, bool print_segments=false) {
-    return Subopt_Iterator<Queue, Block, Model>(block, sequence, model, gap, print_segments);
 }
-
-template <template <class...> class Queue, class Block, class Model>
-auto subopt_block(Block const &block, Complex const &sequence, Model const &model, real gap=0.0, bool print_segments=false) {
-    vec<std::pair<PairList, real>> out;
-    if (gap < 0 || !std::isfinite(*block.Q(0, len(sequence) - 1))) return out;
-
-    auto it = Subopt_Iterator<Queue, Block, Model>(block, sequence, model, gap, print_segments);
-    while (!it.done()) {
-        ++it;
-        if (*it != decltype(it)::sentinel()) out.push_back(*it);
-    }
-
-    return out;
-}
-
-std::map<Structure, std::pair<real, real>> unique_subopt(vec<std::pair<PairList, real>>, Complex const &, Model<float> const &);
-
-}}

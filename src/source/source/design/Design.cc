@@ -1,6 +1,6 @@
 #include <nupack/design/Design.h>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 /**
  * @brief construct a new complex in the design
@@ -19,6 +19,7 @@ void Design::add_complex(vec<string> const &strands, Model<real> key,
         string const &name, Structure struc, DecompositionParameters params, real bonus) {
     auto seq = vmap<vec<StrandView>>(strands, [&](auto const &s) {return sequences.get_strand(s);});
     if (!struc.valid()) struc.nicks = prefixes<Nicks>(false, indirect_view(seq, len));
+    models.get(key);
     complexes.emplace_back(std::move(seq), Target(std::move(key), struc), name, std::move(params), bonus);
 }
 
@@ -35,7 +36,7 @@ void Design::add_complex(vec<string> const &strands, Model<real> key,
 void Design::add_tube(vec<uint> const &indices, vec<real> const &concs, string const &name) {
     vec<TubeTarget> targets;
     zip(indices, concs, [&](auto complex, auto target_conc) {targets.emplace_back(complex, target_conc);});
-    tubes.emplace_back(targets, name, complexes);
+    tubes.emplace_back(targets, name, complexes, water_molarity(complexes.at(indices.at(0)).target.model.temperature()));
 }
 
 /**
@@ -57,33 +58,33 @@ void Design::add_structure_complementarity() {
                 //     return false;
                 // });
                 // if (!duplicate) sequences.constraints.add_constraint(CompConstraint(var_i, var_j, NUPACK_CS_STRONG));
-                sequences.constraints.complementarity_constraint(var_i, var_j, sequences.wobble_mutations);
+                sequences.constraints.pairing_constraint(models.first_model().pairing(), var_i, var_j);
             });
         }
     });
 }
 
 
-vec<real> Design::log_pfuncs(Local const &env, uint depth,
+vec<real> Design::log_pfuncs(Env const &env, uint depth,
         EnsemblePartition const &part, EnsembleLevelSpecification const &indiv,
         EngineObserver &obs) const {
-    auto compute_log_pfuncs = [&](auto const &env, auto j) -> real {
+
+    return env.pool.map(indices(complexes), [&](auto j) -> real {
         if (len(part) == 0 || part.active(j)) {
             auto const &c = at(complexes, j);
             return c.log_pfunc(env, models, sequence(), depth, indiv.get_level_spec(j), obs);
         } else {
-            return nan("");
+            return std::numeric_limits<real>::quiet_NaN();
         }
-    };
-
-    return env.map(len(complexes), 1, compute_log_pfuncs, AffinitySplit());
+    });
+    // return env.map(len(complexes), 1, compute_log_pfuncs, AffinitySplit());
 }
 
 
-vec<Defect> Design::complex_defects(Local const &env, uint depth,
+vec<Defect> Design::complex_defects(Env const &env, uint depth,
         EnsemblePartition const &part, EnsembleLevelSpecification const &indiv,
         EngineObserver &obs) const {
-    auto compute_defects = [&](auto const &env, auto j) -> Defect {
+    auto compute_defects = [&](std::size_t j) -> Defect {
         if (len(part) == 0 || part.active(j)) {
             auto const &c = at(complexes, j);
             return c.defect(env, models, sequence(), depth, indiv.get_level_spec(j), obs);
@@ -92,7 +93,7 @@ vec<Defect> Design::complex_defects(Local const &env, uint depth,
         }
     };
 
-    return env.map(len(complexes), 1, compute_defects, AffinitySplit());
+    return env.pool.map(indices(complexes), compute_defects, GrainSize(1), AffinitySplit());
 }
 
 /**
@@ -102,7 +103,7 @@ vec<Defect> Design::complex_defects(Local const &env, uint depth,
  * @param part partition of complexes into \f$\Psi^{\text{active}}\f$ and \f$\Psi^{\text{passive}}\f$
  * @return the normalized multitube ensemble defect
  */
-Defect Design::normalized_defect(Local const &env, uint depth,
+Defect Design::normalized_defect(Env const &env, uint depth,
         EnsemblePartition const &part, EnsembleLevelSpecification const &indiv,
         Weights const &weights, EngineObserver &obs) const {
     // auto compute_active = [&](auto const &env, auto j, auto) {
@@ -111,21 +112,21 @@ Defect Design::normalized_defect(Local const &env, uint depth,
     //         (void) c.pair_probabilities(env, models, sequence(), depth, indiv.get_level_spec(j), obs);
     //     }
     // };
-    // env.spread(vec<uint>(indices(complexes)), 1, compute_active, AffinitySplit());
+    // env.map(vec<uint>(indices(complexes)), 1, compute_active, AffinitySplit());
 
     vec<real> lpfs = log_pfuncs(env, depth, part, indiv, obs);
     vec<Defect> cdefs = complex_defects(env, depth, part, indiv, obs);
 
-    auto f = [&](auto const &env, auto i) {
+    auto f = [&](auto i) {
         auto const &t = at(tubes, i);
         auto tube_weights = bool(weights) ? weights.per_tube.at(i) : ComplexWeights();
-        vec<real> defects(len(sequence()), 0.0);
+        vec<real> defects(nt(sequence()), 0.0);
         auto tube_defect = t.normalized_defect(lpfs, cdefs, part, tube_weights);
         for (auto const &d: tube_defect.contributions) defects[d.first] += d.second;
         return defects;
     };
 
-    vec<real> mapped_defects = env.map_reduce(len(tubes), 1, f, sum_vec);
+    vec<real> mapped_defects = env.pool.map_reduce(indices(tubes), vec<real>(), f, sum_vec);
 
     /* scale contributions by number of tubes */
     auto num_tubes = len(tubes);
@@ -152,11 +153,11 @@ Defect Design::normalized_defect(Local const &env, uint depth,
  * @param part partition of complexes into \f$\Psi^{\text{active}}\f$ and
  *      \f$\Psi^{\text{passive}}\f$
  */
-void Design::initialize_decomposition(EnsemblePartition const &part) {
+void Design::initialize_decomposition(Env const &env, EnsemblePartition const &part) {
     izip(complexes, [&](auto i, auto &c) {
         if (len(part) > 0 && !part.active(i)) return;
         if (c.is_on_target()) c.structure_decompose();
-        else c.probability_decompose(sequence(), models);
+        else c.probability_decompose(env, sequence(), models);
     });
 }
 
@@ -175,14 +176,14 @@ void Design::initialize_decomposition(EnsemblePartition const &part) {
  * @param part partition of complexes into \f$\Psi^{\text{active}}\f$ and
  *      \f$\Psi^{\text{passive}}\f$
  */
-void Design::redecompose_active(Local const &env, uint depth, EnsemblePartition const &part) {
-    auto decomp = [&](auto, auto i, auto) {
+void Design::redecompose_active(Env const &env, uint depth, EnsemblePartition const &part) {
+    auto decomp = [&](auto i) {
         auto &c = at(complexes, i);
         if (len(part) == 0 || part.active(i))
-            c.probability_decompose(sequence(), models, depth);
+            c.probability_decompose(env, sequence(), models, depth);
     };
 
-    env.spread(vec<uint>(indices(complexes)), 1, decomp, AffinitySplit());
+    env.pool.map(indices(complexes), decomp, GrainSize(1), AffinitySplit());
 }
 
 
@@ -227,4 +228,4 @@ uint find_complex(string name, Design const &design) {
 }
 
 
-}}
+}

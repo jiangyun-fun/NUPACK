@@ -19,9 +19,10 @@ void render(Document &doc, Type<Model<real32>>);
 void render(Document &doc, Type<Model<real64>>);
 void render(Document &doc, Type<EnsembleType>);
 void render(Document &doc, Type<ParameterFile>);
-void render(Document &doc, Type<ParameterData<real>>);
-void render(Document &doc, Type<ParameterData<float>>);
+void render(Document &doc, Type<ParameterArray<real32>>);
+void render(Document &doc, Type<ParameterArray<real64>>);
 void render(Document &doc, Type<ParameterInfo>);
+void render(Document &doc, Type<ParameterBase>);
 void render(Document &doc, Type<ParameterSet<real32>>);
 void render(Document &doc, Type<ParameterSet<real64>>);
 void render(Document &doc, Type<ModelConditions>);
@@ -31,7 +32,7 @@ void render(Document &doc, Type<ModelConditions>);
 template <class M>
 auto loop_energy(M const &model, Complex const &c, int nick) {
     auto const v = complex_to_loop(c, nick);
-    return model.pairable.check_loop(v) ? model.loop_energy(v, nick) : *inf;
+    return model.pairing().check_loop(v) ? model.loop_energy(v, nick) : inf<value_type_of<M>>();
 }
 
 /******************************************************************************************/
@@ -43,54 +44,53 @@ void render(Document &doc, Type<Model<T>> t, int=0) {
     render_public(doc, t);
     render_comparisons(doc, t);
 
-    doc.method(t, "new", [](Ensemble e, ParameterFile const &p, ModelConditions const &cs, uint gu) {
-        auto mod = Model<T>(e, p, cs, gu == 2 ? std::nullopt :
-            std::make_optional(gu ? WobblePairing::on : WobblePairing:: off));
-        set_sequence_type_weak(mod.parameters.material == "RNA");
-        return mod;
-    });
+    doc.method(t, "new", rebind::construct<Ensemble, ParameterFile const &, ModelConditions const &>(t));
+    doc.method(t, "alphabet",             [](M const &m) {return m.alphabet();});
     doc.method(t, "join_penalty",         &M::join_penalty);
+    doc.method(t, "temperature",          &M::temperature);
     doc.method(t, "multi_init",           &M::multi_init);
     doc.method(t, "multi_base",           &M::multi_base);
     doc.method(t, "multi_pair",           &M::multi_pair);
     doc.method(t, "interior_size_energy", &M::interior_size_energy);
     doc.method(t, "interior_asymmetry",   &M::interior_asymmetry);
     doc.method(t, "interior_mismatch",    &M::interior_mismatch);
-    // doc.method(t, "dangle5",              &M::dangle5);
-    // doc.method(t, "dangle3",              &M::dangle3);
+    doc.method(t, "terminal_mismatch",    &M::terminal_mismatch);
+    doc.method(t, "dangle5",              &M::dangle5);
+    doc.method(t, "dangle3",              &M::dangle3);
     doc.method(t, "boltz",                &M::boltz);
     doc.method(t, "hairpin_energy",       &M::template hairpin_energy<Sequence>);
     doc.method(t, "loop_energy",          &loop_energy<M>);
-    doc.method(t, "stack_energies",       &loop_stacking_energies<M>);
+    doc.method(t, "stack_energies",       &loop_stacking_energies<std::map<string, real>, M>);
     doc.method(t, "multi_energy",         &M::template multi_energy<SequenceList>);
     doc.method(t, "exterior_energy",      &M::template exterior_energy<SequenceList>);
     doc.method(t, "interior_energy",      &M::template interior_energy<Sequence, Sequence>);
     doc.method(t, "coaxial_stack_energy", &M::coaxial_stack_energy);
+    doc.method(t, "structure_energy",     &M::structure_energy);
     render_json(doc, t);
 }
 
 /******************************************************************************************/
 
 template <class T>
-void render(Document &doc, Type<ParameterData<T>> t, int=0) {
-    doc.type(t, "model.ParameterData");
+void render(Document &doc, Type<ParameterArray<T>> t, int=0) {
+    doc.type(t, "model.ParameterArray");
     doc.method(t, "new", rebind::construct(t));
-    doc.method(t, "new", [](ParameterFile const &file, string const &kind) {return ParameterData<T>(file.open().at(kind));});
-    // doc.method(t, "array", [](ParameterData<T> const &p) {
-    //     NUPACK_ASSERT(p.array, "empty parameters");
-    //     return arma::Col<T>(p.array.get(), ParameterData<T>::size);
-    // });
-    render_json(doc, t);
-    render_public(doc, t);
+    // doc.method(t, "new", [](ParameterFile const &file, string const &kind) {return ParameterData<T>(file.open().at(kind));});
+    doc.method(t, "to_array", [](ParameterArray<T> const &p) {
+        NUPACK_ASSERT(p.array, "empty parameters");
+        return arma::Col<T>(p.array.get(), p.size());
+    });
+    // render_json(doc, t);
+    // render_public(doc, t);
 }
 
 /******************************************************************************************/
 
 template <class T>
 void render(Document &doc, Type<ParameterSet<T>> t, int=0) {
-    doc.render<ParameterData<T>>();
+    doc.render<ParameterArray<T>>();
     doc.type(t, "model.ParameterSet");
-    doc.method(t, "new", rebind::construct<ParameterInfo>(t));
+    doc.method(t, "new", [](ParameterInfo const &i) {return ParameterSet<T>(load_parameter_set(i));});
     render_json(doc, t);
     render_public(doc, t);
 }

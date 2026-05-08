@@ -1,18 +1,229 @@
-import functools, itertools, collections, numpy, pandas, decimal, scipy.sparse
+import collections, numpy, pandas, decimal, scipy.sparse
 
 from .rebind import Tuple, List, Dict, Union, Callable, forward
-from .core import Structure, RawComplex, Sparsity, PairsMatrix
+from .core import SetSpec, Structure, Complex, Sparsity, PairMatrix, Strand, complexes_from_max_size, Tube, Local, SequenceList, standardize_alphabet
 from .utility import match, str_repr, long_output, printable, NamedTuple, \
-    BaseResult, from_argument, check_instance
+    BaseResult, Loadable, from_argument, check_instance, check_instances, create_name
 from .model import Model, Ensemble
 from .rotation import lowest_rotation
-from .constants import complexes_from_max_size, as_sequences
-from . import core
 from .concentration import solve_complex_concentrations
-from . import thermo
-from .thermo import StructureEnergy
+from .thermo import StructureEnergy, Job, CostsJob, PFJob, PairsJob, SuboptJob, SampleJob, ComputeOptions, submit
 
-# min(2 gb, disable it if less than 2 gb)
+################################################################################
+
+def reorder_matrix(A, order):
+    '''Reorder matrix given permutation from old -> new'''
+    new_to_old = numpy.empty_like(order)
+    new_to_old[order] = numpy.arange(len(order)) # invert to get new->old
+    return A[new_to_old][:, new_to_old]
+
+class ComplexResult(NamedTuple):
+    '''Output result for analysis of a single Complex, with a lot of optional fields'''
+    model: Model
+    # associated strands -- the order matters for pairs, and structure outputs
+    strands: tuple
+    # output of pfunc
+    pfunc: decimal.Decimal = None
+    free_energy: float = None
+    # output of mfe
+    mfe_stack: float = None
+    # output of ensemble_size
+    ensemble_size: int = None
+    # output of pairs
+    pairs: PairMatrix = None
+    # output of costs
+    costs: numpy.ndarray = None
+    # output of subopt
+    mfe: list = None
+    subopt: list = None
+    # output of sample
+    sample: list = None
+
+    def structure_mfe(self) -> float:
+        return self.mfe[0].energy if self.mfe else float('inf')
+
+    def __repr__(self):
+        return str_repr(self)
+
+    def __str__(self):
+        return  '{%s}' % ', '.join('{}: {}'.format(k, v) for k, v
+            in zip(self._fields, self) if v is not None)
+    
+    def reorder(self, strands):
+        strands = tuple(strands)
+        if strands == tuple(self.strands):
+            return self
+        order = []
+        for s in self.strands:
+            start = sum(len(x) for x in strands[:strands.index(s)])
+            order.extend(range(start, start + len(s)))
+        order = numpy.array(order, dtype=numpy.uint32)
+
+        fix = lambda x: None if x is None else [y.permute(order) for y in x]
+        return ComplexResult(
+            model=self.model,
+            strands=tuple(strands),
+            pfunc=self.pfunc,
+            free_energy=self.free_energy,
+            mfe_stack=self.mfe_stack,
+            pairs=None if self.pairs is None else self.pairs.permute(order),
+            costs=None if self.costs is None else reorder_matrix(self.costs, order),
+            mfe=fix(self.mfe), subopt=fix(self.subopt), sample=fix(self.sample)
+        )
+
+################################################################################
+
+class ComplexDict(collections.abc.Mapping):
+    '''Simple dict wrapper which reorders complex results for a given rotation'''
+    def __init__(self, data):
+        self.data = dict(data)
+
+    def __getitem__(self, key):
+        return self.data[key].reorder(key.strands)
+
+    def __iter__(self):
+        return iter(self.data)
+    
+    def __len__(self):
+        return len(self.data)
+    
+################################################################################
+
+class Options(NamedTuple):
+    '''
+    Analysis options which apply to every complex
+    - num_sample: Number of sampled structures
+    - energy_gap: Free energy gap in kcal/mol for suboptimal structures
+    - sparsity_fraction: Maximum fractional sparsity of each pair probability row
+    - sparsity_threshold: Maximum value of pair probability to count as zero
+    - single_mfe: Whether to return only a single MFE for MFE jobs
+    - cache_bytes: Size of cache in bytes
+    '''
+
+    num_sample: int = 0
+    energy_gap: float = 0
+    sparsity_fraction: float = 1.0
+    sparsity_threshold: float = 0.0
+    single_mfe: bool = False
+    cache_bytes: float = -1.0
+
+    from_argument = classmethod(from_argument)
+
+################################################################################
+
+def complex_analysis(complexes, model, *, compute, options=None):
+    '''
+    Analyze a set of complexes for their complex ensemble thermodynamic properties
+    - complexes: a ComplexSet, Tube, or list of complexes
+    - compute: a list of physical quantities to compute [pfunc, mfe, pairs, sample, subopt, ensemble_size]
+    - options: a dict or instance of `Options`: the options to apply to each calculation
+    - model: the free energy model to use
+    '''
+    complexes = check_instances(set(complexes), Complex)
+    jobs, counts = [], []
+    options = Options.from_argument(options)
+
+    # If the model is rnadna, standardize complexes
+    if model.material == 'DNA/RNA':
+        complexes_s = standardize_alphabet(complexes, model.alphabet())
+        complexes_s = [complexes_s[i] for i in range(0,len(complexes_s))]
+    else:
+        complexes_s = complexes
+
+    for c in complexes_s:
+        for task in compute:
+            if task == 'pfunc':
+                jobs.append(Job(c, PFJob()))
+            elif task == 'mfe':
+                jobs.append(Job(c, SuboptJob(gap=-1 if options.single_mfe else 0)))
+            elif task == 'costs':
+                jobs.append(Job(c, CostsJob()))
+            elif task == 'pairs':
+                jobs.append(Job(c, PairsJob(Sparsity(
+                    row_size=int(round(options.sparsity_fraction * c.nt())),
+                    threshold=options.sparsity_threshold))))
+            elif task == 'sample':
+                jobs.append(Job(c, SampleJob(number=options.num_sample)))
+            elif task == 'subopt':
+                jobs.append(Job(c, SuboptJob(gap=options.energy_gap)))
+            elif task == 'ensemble_size':
+                counts.append(Job(c, PFJob()))
+            else:
+                raise KeyError('%r is not a valid analysis task' % task)
+
+    compute_ops = ComputeOptions(max_bytes=options.cache_bytes)
+
+    if 'ensemble_size' in compute:
+        cmodel = model.copy()
+        cmodel.beta = 0
+    else:
+        cmodel = None
+    results = [j and submit(m, j, options=compute_ops) for j, m in zip([jobs, counts], [model, cmodel])]
+    results, counts = [r and r.get() for r in results]
+
+    output = {}
+
+    if 'sample' in compute:
+        samples = {}
+        for k, v in results.items():
+            nicks = k.nicks()
+            if v.sample:
+                samples[k] = [Structure(s, nicks) for s in v.sample.value().structures]
+
+    has_non_count = bool(set(compute).difference(['ensemble_size']))
+
+    for i in range(0, len(complexes)):
+        c = complexes_s[i]
+        c_orig = complexes[i]
+        key = SequenceList(c)
+        v = results[key] if has_non_count else None
+
+        sym = c.symmetry()
+        bonus = c.bonus
+        # now have to fix up all this distinguishability ... stuff
+        r = {}
+
+        if 'mfe' in compute or 'subopt' in compute or 'costs' in compute:
+            assert v.subopt, c
+            nicks = c.nicks()
+            strucs = v.subopt.take()
+            strucs = [StructureEnergy(structure=Structure(s.structure, nicks),
+                stack_energy=s.stack_energy+bonus, energy=s.energy + bonus) for s in strucs.structures]
+            r['mfe_stack'] = v.mfe.take().energy + bonus
+
+            mfe = min(s.energy for s in strucs) if strucs else None
+            r['mfe'] = [s for s in strucs if s.energy <= mfe + 1e-4]
+
+            if 'subopt' in compute:
+                r['subopt'] = strucs
+
+            if 'costs' in compute:
+                r['costs'] = v.costs.take().matrix.cast(numpy.ndarray)
+
+        if 'ensemble_size' in compute:
+            pf = counts[key].pfunc
+            assert pf, c
+            r['ensemble_size'] = int(round(decimal.Decimal(pf.take().logq).exp())) // sym
+
+        if 'pfunc' in compute or 'sample' in compute or 'pairs' in compute:
+            assert v.pfunc, c
+            pf = v.pfunc.take()
+            factor = numpy.exp(-model.beta * bonus)
+            r['pfunc'] = decimal.Decimal(pf.logq).exp() * decimal.Decimal(factor / sym)
+            r['free_energy'] = (numpy.log(float(sym)) - pf.logq) / model.beta
+
+        if 'sample' in compute:
+            x = samples[key]
+            r['sample'] = x[:options.num_sample]
+            samples[key] = x[options.num_sample:]
+
+        if 'pairs' in compute:
+            assert v.pairs, c
+            r['pairs'] = v.pairs.take().matrix
+
+        output[c_orig] = ComplexResult(model=model, strands=tuple(c_orig.strands), **r)
+
+    return Result(complexes=output)
 
 ################################################################################
 
@@ -27,23 +238,30 @@ def into_blocks(matrix, lengths):
 def ensemble_pair_fractions(strands, complex_data):
     '''
     Calculate ensemble pair fractions given the pair probability matrices for a set of complexes
-    - strands: list of RawStrand
-    - complex_data: map from RawComplex to pair probability matrix (ndarray or sparse)
+    - strands: list of Strand
+    - complex_data: map from Complex to pair probability matrix (ndarray or sparse)
     Should work with either sparse or non-sparse matrices
     '''
     strands = tuple(strands)
     assert len(set(strands)) == len(strands), 'Strands should be unique'
-    # out = np.full([len(strands)]*2, 0, dtype=object)
-    # P = into_blocks(out, tuple(map(len, strands)))
     P = [[0 for _ in strands] for _ in strands]
     for k, (c, x) in complex_data.items():
-        blocks = into_blocks(x, tuple(map(len, k.strands)))
-        for i, row in zip(k.strands, blocks):
-            for j, p in zip(k.strands, row):
+        blocks = into_blocks(x, tuple(map(len, k)))
+        for i, row in zip(k, blocks):
+            for j, p in zip(k, row):
                 P[strands.index(i)][strands.index(j)] += c * p
-    P = scipy.sparse.vstack(list(map(scipy.sparse.hstack, P)))
-    P /= P.sum(1)
+    P = scipy.sparse.vstack(list(map(scipy.sparse.hstack, P)), format='csc')
+    P.data /= numpy.asarray(P.sum(1)).reshape(-1)[P.indices]
     return P
+
+################################################################################
+
+def anonymous_complex(strands, alphabet=None):
+    if alphabet is not None:
+        strands = [Strand(s, name=str(i), alphabet=alphabet) for i, s in enumerate(SequenceList(strands, alphabet=alphabet))]
+    else:
+        strands = [Strand(s, name=str(i)) for i, s in enumerate(SequenceList(strands))]
+    return Complex(strands)
 
 ################################################################################
 
@@ -53,25 +271,37 @@ def pfunc(strands, model) -> Tuple[float, float]:
     - model(Model): free energy model to use
     - Returns a tuple of (pfunc, free_energy)
     '''
-    strands = RawComplex(strands)
-    res = Specification(model).pfunc(strands).compute()
-    return (res[strands].pfunc, res[strands].free_energy)
+    strands = anonymous_complex(strands, alphabet=model.alphabet())
+    res = complex_analysis([strands], model, compute=['pfunc'])[strands]
+    return (res.pfunc, res.free_energy)
 
 ################################################################################
 
-def pairs(strands, model, *, sparsity_fraction=1, sparsity_threshold=0) -> PairsMatrix:
+def pairs(strands, model, *, sparsity_fraction=1, sparsity_threshold=0) -> PairMatrix:
     '''
     Calculate equilibrium pair probabilities of a single complex
     - model(Model): free energy model to use
     - sparsity_fraction: maximum fraction of each row to keep
     - sparsity_threshold: minimum pair probability to preserve
-    - Returns a PairsMatrix object
+    - Returns a PairMatrix object
     '''
-    strands = RawComplex(strands)
-    spec = Specification(model).pairs(strands,
-        sparsity=Sparsity(fraction=sparsity_fraction, threshold=sparsity_threshold))
-    res = spec.compute()
+    strands = anonymous_complex(strands, alphabet=model.alphabet())
+    res = complex_analysis([strands], model, compute=['pairs'],
+        options=dict(sparsity_fraction=sparsity_fraction, sparsity_threshold=sparsity_threshold))
     return res[strands].pairs
+
+################################################################################
+
+def fraction_bases_unpaired(strands, model, max_size) -> float:
+    '''
+    Compute equilibrium fraction of unpaired bases
+    - strands(dict): dict from strand (e.g. str) to its concentration
+    - model(Model): free energy model to use
+    '''
+    tube = Tube({Strand(k, name=str(i)): v for i, (k, v) in enumerate(strands.items())},
+        complexes=SetSpec(max_size), name='t')
+    res = tube_analysis([tube], model=model, compute=['pairs'], options={'sparsity_fraction': 0})
+    return res[tube].fraction_bases_unpaired
 
 ################################################################################
 
@@ -81,9 +311,8 @@ def mfe(strands, model) -> List[StructureEnergy]:
     - model(Model): free energy model to use
     - Returns a list of StructureEnergy objects
     '''
-    strands = RawComplex(strands)
-    res = Specification(model).mfe(strands).compute()
-    return res[strands].mfe
+    strands = anonymous_complex(strands, alphabet=model.alphabet())
+    return complex_analysis([strands], model, compute=['mfe'])[strands].mfe
 
 ################################################################################
 
@@ -93,7 +322,7 @@ def energy(strands, structure, model) -> float:
     - model(Model): free energy model to use
     '''
     bonus = getattr(strands, 'energy', 0.0)
-    strands = RawComplex(strands)
+    strands = anonymous_complex(strands, alphabet=model.alphabet())
     return model.structure_energy(strands, structure) + bonus
 
 ################################################################################
@@ -103,10 +332,12 @@ def structure_probability(strands, structure, model) -> float:
     Calculate equilibrium probability of a structure for a given complex
     - model(Model): free energy model to use
     '''
-    strands = RawComplex(strands)
-    res = Specification(model).pfunc(strands).compute()
-    e = energy(strands, structure, res[strands].model)
-    return numpy.exp(-res[strands].model.beta * (e - res[strands].free_energy))
+    strands = anonymous_complex(strands, alphabet=model.alphabet())
+    res = complex_analysis([strands], model, compute=['pfunc'])[strands]
+    e = energy(strands, structure, model)
+    return numpy.exp(-model.beta * (e - res.free_energy))
+
+prob = structure_probability
 
 ################################################################################
 
@@ -115,8 +346,8 @@ def ensemble_size(strands, model):
     Calculate number of secondary structures in a given complex ensemble
     - model(Model): free energy model to use
     '''
-    strands = RawComplex(strands)
-    res = Specification(model).ensemble_size(strands).compute()
+    strands = anonymous_complex(strands, alphabet=model.alphabet())
+    res = complex_analysis([strands], model, compute=['ensemble_size'])
     return res[strands].ensemble_size
 
 ################################################################################
@@ -126,9 +357,12 @@ def subopt(strands, energy_gap, model):
     Calculate suboptimal structures falling below a specified energy gap of the MFE
     - model(Model): free energy model to use
     - energy_gap: suboptimal structure energy gap in kcal/mol
+    If energy_gap is non-negative and less than 1e-4, an energy_gap of 1e-4 will be used.
+    (This is to avoid structures not appearing due to floating point precision)
+    If just one MFE structure is desired, supply an energy_gap less than 0
     '''
-    strands = RawComplex(strands)
-    res = Specification(model).subopt(strands, gap=energy_gap).compute()
+    strands = anonymous_complex(strands, alphabet=model.alphabet())
+    res = complex_analysis([strands], model, compute=['subopt'], options={'energy_gap': energy_gap})
     return res[strands].subopt
 
 ################################################################################
@@ -139,14 +373,17 @@ def sample(strands, num_sample, model):
     - model(Model): free energy model to use
     - num_sample(int): number of samples
     '''
-    strands = RawComplex(strands)
-    res = Specification(model).sample(strands, number=num_sample).compute()
+    strands = anonymous_complex(strands, alphabet=model.alphabet())
+    res = complex_analysis([strands], model, compute=['sample'], options={'num_sample': num_sample})
     return res[strands].sample
 
 ################################################################################
 
 class ConcentrationResult:
-
+    '''
+    Simple wrapper fo the equilibrium complex concentrations
+    Use the `complex_concentrations` property to get a dict of these concentrations
+    '''
     def __init__(self, strands, complexes, concentrations):
         self.strands = tuple(strands)
         self.complexes = tuple(complexes)
@@ -163,18 +400,17 @@ class ConcentrationSolver:
     def __init__(self, strands, complex_results, *, distinguishable):
         '''
           Initialize the solver from
-          - strands: an ordered list of RawStrand
-        - - complex_results: a dict of RawComplex to ComplexResult
+          - strands: an ordered list of Strand
+        - - complex_results: a dict of Complex to ComplexResult
           Note that each ComplexResult must contain the partition function
-          If distinguishable=True, then a RawStrand entered twice
+          If distinguishable=True, then a Strand entered twice
           is equivalent to saying that the first entry is labeled differently than
           the second.
         '''
-
         self.strands = tuple(strands)
         self.temperature = tuple(complex_results.values())[0].model.temperature
 
-        self.complexes = {k : v.pfunc.ln()
+        self.complexes = {k : float(v.pfunc.ln())
             for k, v in complex_results.items() if v.pfunc is not None}
 
         self.distinguishable = bool(distinguishable)
@@ -208,139 +444,198 @@ class ConcentrationSolver:
             rotational_correction=self.distinguishable, **kws)
         return ConcentrationResult(self.strands, complexes, x)
 
-
 ################################################################################
 
-class Task(NamedTuple):
-    '''Inputs for thermodynamic calculations for a given complex'''
+@printable
+class Result(BaseResult, Loadable):
+    '''Class holding an analysis result'''
 
-    pfunc: bool = False
-    mfe: int = None
-    ensemble_size: bool = False
-    pairs: Sparsity = None
-    sample: int = 0
-    subopt: float = None
-    pf_matrices: bool = False
-    mfe_matrices: int = None
+    names = ('tubes', 'complexes')
 
-################################################################################
+    def __init__(self, *, tubes=None, complexes=None):
+        self.tubes = {} if tubes is None else dict(tubes)
+        self.complexes = {} if complexes is None else ComplexDict(complexes)
 
-class ComplexResult(NamedTuple):
-    '''Output result for analysis of a single Complex, with a lot of optional fields'''
-    model: Model
-    # output of pfunc
-    pfunc: decimal.Decimal = None
-    free_energy: float = None
-    pf_matrices: dict = None
-    # output of mfe
-    mfe_stack: float = None
-    mfe_matrices: dict = None
-    # output of ensemble_size
-    ensemble_size: int = None
-    # output of pairs
-    pairs: PairsMatrix = None
-    # output of subopt
-    mfe: list = None
-    subopt: list = None
-    # output of sample
-    sample: list = None
+    @property
+    def fields(self):
+        return (self.tubes, self.complexes)
 
-    def structure_mfe(self) -> float:
-        return self.mfe[0].energy if self.mfe else float('inf')
+    _unicode_cols = ['Complex', 'Pfunc', '\u0394G (kcal/mol)', 'MFE (kcal/mol)', 'Ensemble size']
+    _pretty_cols = ['Complex', 'Pfunc', 'dG (kcal/mol)', 'MFE (kcal/mol)', 'Ensemble size']
+    _raw_cols = ['complex', 'pfunc', 'free_energy', 'mfe', 'ensemble_size']
 
-    def __repr__(self):
-        return str_repr(self)
+    _formats = [
+        lambda c: c.name, # complex
+        '{:.4e}'.format, # pfunc
+        '{:.3f}'.format, # free energy
+        '{:.3f}'.format, # mfe
+        lambda i: str(i) if i < 1e10 else '{:.3e}'.format(i), # count
+    ]
+
+    _tube_fmts = [lambda x: '' if numpy.isnan(x) else '{:.3e}'.format(x)]
+
+    def complex_frame(self, *, include_null=True, pretty: bool, unicode=True):
+        '''pandas DataFrame with complexes'''
+        data = [[k, v.pfunc, v.free_energy, v.mfe[0].energy if v.mfe else None, v.ensemble_size]
+            for k, v in self.complexes.items()]
+        if pretty:
+            cols = self._unicode_cols if unicode else self._pretty_cols
+        else:
+            cols = self._raw_cols
+        df = pandas.DataFrame(data, columns=cols)
+
+        if include_null:
+            return df
+
+        df = df[[c for c in df.columns if not df[c].isnull().all()]]
+        # sort by #strands, then alphabetically but move ( to the back
+        keys = [(len(c), c.name.replace('(', '~')) for c in df[df.columns[0]]]
+        return df.reindex(sorted(range(len(keys)), key=keys.__getitem__)).reset_index(drop=True)
+
+    def tube_frame(self, *, pretty: bool):
+        '''
+        Return a pandas DataFrame with tubes
+        - pretty: use spaces and capitalization
+        '''
+        if len(set(t.name for t in self.tubes)) != len(self.tubes):
+            raise ValueError('Tube names are not unique')
+
+        if self.complexes:
+            complexes = self.complexes
+        else:
+            complexes = set(x for t in self.tubes for x in t.complexes)
+
+        dfs = []
+        for t, v in self.tubes.items():
+            if pretty:
+                df = pandas.DataFrame([[*x, numpy.nan] for x in v.complex_concentrations.items()],
+                    columns=['Complex', t.name + ' (M)', ' '] )
+            else:
+                df = pandas.DataFrame(list(v.complex_concentrations.items()),
+                    columns=['complex', t.name])
+            # Sort by concentrations
+            dfs.append(df.sort_values(by=df.columns[1], ascending=False).reset_index(drop=True))
+        return pandas.concat(dfs, axis=1)
 
     def __str__(self):
-        return  '{%s}' % ', '.join('{}: {}'.format(k, v) for k, v
-            in zip(self._fields, self) if v is not None)
+        items = []
+        with long_output():
+            if self.complexes:
+                df = self.complex_frame(include_null=False, pretty=True, unicode=False)
+                fmts = dict(zip(df.columns, self._formats))
+                string = df.to_string(formatters=fmts, na_rep='')
+                items.append('Complex results:\n' + string)
+            if any(len(t.complexes) > 1 for t in self.tubes):
+                df = self.tube_frame(pretty=True)
+                f = {k: self._tube_fmts[0] for k in df.columns}
+                f[df.columns[0]] = lambda c: c.name
+                items.append('Concentration results:\n' + df.to_string(formatters=f, na_rep='', index=False))
+        return '\n'.join(items)
+
+    def _repr_html_(self):
+        '''Return html string for output in notebooks'''
+        items = []
+        with long_output():
+            if self.complexes:
+                df = self.complex_frame(include_null=False, pretty=True, unicode=True)
+                f = dict(zip(df.columns, self._formats))
+                string = df.to_html(formatters=f, na_rep='', index=False)
+                items.append('<b>Complex results:</b> ' + string)
+            if any(len(t.complexes) > 1 for t in self.tubes):
+                df = self.tube_frame(pretty=True)
+                f = {k: self._tube_fmts[0] for k in df.columns}
+                f[df.columns[0]] = lambda c: c.name
+                string = df.to_html(formatters=f, na_rep='', index=False)
+                items.append('<b>Concentration results:</b> ' + string)
+        return ' '.join(items)
 
 ################################################################################
 
-class Specification:
+class PairFractions:
     '''
-    The main class for thermodynamic computation in the complex ensemble. Computations
-    are scheduled via member functions like `pfunc`, while the
-    computations are then performed with `compute()`. Most methods for scheduling
-    computation also take a `max_size` parameter. If this is specified as `>0`,
-    all complexes of the given strands up to that size will be computed. Otherwise,
-    just the complex of the given strands in that order will be computed.
+    Simple wrapper class for ensemble pair fractions
+    Use `to_array` or `to_sparse` to convert to numpy/scipy arrays.
     '''
-    default_bits = {'pfunc': [64, -32],
-                    'count': [64, -32],
-                    'mfe': [32]}
+    def __init__(self, sparse_matrix):
+        self.matrix = sparse_matrix
 
-    def __init__(self, model):
-        '''Initialize analysis for a given free energy model of type nupack.Model'''
-        self.model = check_instance(model, Model)
-        self.tasks = {}
+    def to_array(self):
+        '''Return numpy ndarray of the pair fractions'''
+        return self.matrix.todense()
 
-    def add(self, strands, max_size=0):
-        strands = RawComplex(strands)
-        for s in complexes_from_max_size(strands, max_size) if max_size else (strands,):
-            r = RawComplex(s)
-            yield r, self.tasks.setdefault(r, Task())
+    def to_sparse(self):
+        '''Return sparse array of the pair fractions'''
+        return self.matrix
 
-    def pfunc(self, strands, max_size=0, matrices=False):
-        '''Schedule computation of complex partition function and free energy'''
-        for k, v in self.add(strands, max_size):
-            self.tasks[k] = v._replace(pfunc=True, pf_matrices=v.pf_matrices or matrices)
-        return self
+    def __str__(self):
+        return str(self.to_array())
 
-    def pairs(self, strands, max_size=0, *, sparsity=Sparsity()):
-        '''Schedule computation of complex equilibrium pair probability'''
-        for k, v in self.add(strands, max_size):
-            self.tasks[k] = v._replace(pairs=sparsity)
-        return self
+################################################################################
 
-    def mfe(self, strands, max_size=0, *, structures=True, matrices=False):
-        '''Schedule computation of minimum free energy and, optionally, matching structures'''
-        if structures:
-            self.subopt(strands, max_size, gap=0)
-        for k, v in self.add(strands, max_size):
-            self.tasks[k] = v._replace(mfe=True, mfe_matrices=v.mfe_matrices or matrices)
-        return self
+class TubeResult:
+    '''
+    Contains three fields:
+    - complex_concentrations: a dict from complex to its equilibrium concentration
+    - ensemble_pair_fractions: optionally, the equilibrium strand pairing matrix
+    - fraction_bases_unpaired: optionally, the fraction of unpaired nucleotides in the test tube at equilibrium
+    The latter two fields will only be populated if pair probability information has been computed.
+    '''
 
-    def subopt(self, strands, max_size=0, *, gap, stream=None):
-        '''Schedule computation of suboptimal structures'''
-        for k, v in self.add(strands, max_size):
-            self.tasks[k] = v._replace(subopt=(gap if
-                v.subopt is None else max(v.subopt[0], gap), stream))
-        return self
+    def __init__(self, complex_concentrations, *, tube, result=None):
+        self.complex_concentrations = dict(complex_concentrations)
 
-    def sample(self, strands, max_size=0, *, number):
-        '''Schedule computation of structures sampled from Boltzmann distribution'''
-        for k, v in self.add(strands, max_size):
-            self.tasks[k] = v._replace(sample=v.sample + number)
-        return self
-
-    def ensemble_size(self, strands, max_size=0):
-        for k, v in self.add(strands, max_size):
-            self.tasks[k] = v._replace(ensemble_size=True)
-        return self
-
-    def compute(self, pairing=None, dtypes=None, gil=True):
-        '''Compute all scheduled tasks and return a dict of RawComplex to ComplexResult'''
-        from nupack import config
-        mem = int(float(config.cache) * 10**9) # cache bytes
-        env = core.Local()
-
-        if dtypes is None:
-            bits = self.default_bits
+        if result is None or any(result[x].pairs is None for x in tube.complexes):
+            self.ensemble_pair_fractions = None
+            self.fraction_bases_unpaired = None
         else:
-            bits = self.default_bits.copy()
-            bits.update(dtypes)
+            self.fraction_bases_unpaired = sum(result[x].pairs.diagonal.sum() * complex_concentrations[x] for x in tube.complexes) \
+                                   / sum(len(result[x].pairs.diagonal)  * complex_concentrations[x] for x in tube.complexes)
+            raw = ensemble_pair_fractions(tube.strands,
+                {x: (complex_concentrations[x], result[x].pairs.to_sparse()) for x in tube.complexes})
+            self.ensemble_pair_fractions = PairFractions(raw)
 
-        kw = dict(env=env, pairing=thermo.obs(pairing), observe=None, gil=gil)
-        out = {k: {} for k in self.tasks}
+    def __getitem__(self, complex):
+        '''Get complex concentration by complex or complex name'''
+        if not isinstance(complex, str):
+            return self.complex_concentrations[complex]
+        try:
+            return next(v for k, v
+                in self.complex_concentrations.items() if k == complex)
+        except StopIteration:
+            raise KeyError(complex) from None
 
-        thermo.compute_pf(self.tasks, out, **kw,
-            **thermo.options('pf', mem, self.model, bits['pfunc']))
-        thermo.compute_mfe(self.tasks, out, **kw,
-            **thermo.options('mfe', mem, self.model, bits['mfe']))
-        thermo.compute_count(self.tasks, out, **kw,
-            **thermo.options('pf', mem, self.model, bits['count'], count=True))
+    def __str__(self):
+        return str(self.complex_concentrations)
 
-        return {k: ComplexResult(self.model, **v) for k, v in out.items()} # maybe return caches too if requested
+################################################################################
+
+def tube_analysis(tubes, model, *, compute=(), **kws):
+    '''
+    Analyze a set of tubes for their complex ensemble and concentration properties
+    See `complex_analysis` for details independent of concentration results
+    '''
+    compute = ['pfunc'] + list(compute)
+    result = complex_analysis(Tube.union(tubes), compute=compute, model=model, **kws)
+    for t in tubes:
+        solver = ConcentrationSolver(t.strands,
+            {k: result[k] for k in t.complexes}, distinguishable=False)
+        solved = solver.compute(t.concentrations)
+        result.tubes[t] = TubeResult(solved.complex_concentrations, tube=t, result=result)
+    return result
+
+################################################################################
+
+def complex_concentrations(tube, data, concentrations=None, **solve_options):
+    '''Calculate the equilibrium concentrations for a given tube using already calculated complex results'''
+    if concentrations is None:
+        conc = tube.concentrations
+    else:
+        conc = [concentrations[strand] for strand in tube.strands]
+    name = getattr(tube, 'name', 'tube')
+    tube = Tube(zip(tube.strands, conc), complexes=tube.complexes, name=name)
+    solver = ConcentrationSolver(tube.strands,
+        {k: data[k] for k in tube.complexes}, distinguishable=False)
+    res = solver.compute(tube.concentrations, **solve_options)
+    return Result(tubes={tube: TubeResult(res.complex_concentrations, tube=tube)})
 
 ################################################################################

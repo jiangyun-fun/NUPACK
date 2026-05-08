@@ -1,11 +1,23 @@
+vcpkg_download_distfile(
+    CUDA_PATCHES
+    URLS "https://github.com/arrayfire/arrayfire/pull/3552/commits/674e7bec90b90467139d32bf633467fe60824617.diff?full_index=1"
+    FILENAME "fix-cuda-674e7bec90b90467139d32bf633467fe60824617.patch"
+    SHA512 201ba8c46f5eafd5d8dbc78ddc1fb4c24b8d820f034e081b8ff30712705fe059c2850bbb7394d81931620619071559fed0e98b13cc4f985103e354c44a322e78
+)
+
 vcpkg_from_github(
   OUT_SOURCE_PATH SOURCE_PATH
   REPO arrayfire/arrayfire
-  REF 59ac7b980d1ae124aae914fb29cbf086c948954d # v3.7.3
-  SHA512 e8c209a5249046cb8d68877463b4f4921cfc363ec2f9b070ba67c9e00cbe7b44d5db209922dabc47e53977ff918e7f0d289f85c7571a826c2050d0ee8deae3e0
+  REF d99887ae431fcd58168b653a1e69f027f04d5188 # v3.8.0
+  SHA512 d8ddf6ba254744e62acf5ecf680f0ae56b05f8957b5463572923977ba2ffea7fa37cc1b6179421a1188a6f9e66565ca0f8cd00807513ccbe66ba1e9bbd41a3da
   HEAD_REF master
-  PATCHES build.patch
-  )
+  PATCHES
+    build.patch
+    Fix-constexpr-error-with-vs2019-with-half.patch
+    fix-dependency-clfft.patch
+    fix-miss-header-file.patch
+    "${CUDA_PATCHES}"
+)
 
 # arrayfire cpu thread lib needed as a submodule for the CPU backend
 vcpkg_from_github(
@@ -14,7 +26,7 @@ vcpkg_from_github(
   REF b666773940269179f19ef11c8f1eb77005e85d9a
   SHA512 b3e8b54acf3a588b1f821c2774d5da2d8f8441962c6d99808d513f7117278b9066eb050b8b501bddbd3882e68eb5cc5da0b2fca54e15ab1923fe068a3fe834f5
   HEAD_REF master
-  )
+)
 
 # Get forge. We only need headers and aren't actually linking.
 # We don't want to use the vcpkg dependency since it is broken in many
@@ -23,11 +35,11 @@ vcpkg_from_github(
 # are still runtime dependencies, so the user can use the graphics
 # library by installing forge and freeimage.
 vcpkg_from_github(
-    OUT_SOURCE_PATH FORGE_PATH
-    REPO arrayfire/forge
-    REF 1a0f0cb6371a8c8053ab5eb7cbe3039c95132389 # v1.0.5
-    SHA512 8f8607421880a0f0013380eb5efb3a4f05331cd415d68c9cd84dd57eb727da1df6223fc6d65b106675d6aa09c3388359fab64443c31fadadf7641161be6b3b89
-    HEAD_REF master
+  OUT_SOURCE_PATH FORGE_PATH
+  REPO arrayfire/forge
+  REF 1a0f0cb6371a8c8053ab5eb7cbe3039c95132389 # v1.0.5
+  SHA512 8f8607421880a0f0013380eb5efb3a4f05331cd415d68c9cd84dd57eb727da1df6223fc6d65b106675d6aa09c3388359fab64443c31fadadf7641161be6b3b89
+  HEAD_REF master
 )
 
 ################################### Build ###################################
@@ -42,8 +54,17 @@ set(AF_DEFAULT_VCPKG_CMAKE_FLAGS
   -DAF_CPU_THREAD_PATH=${CPU_THREADS_PATH} # for building the arrayfire cpu threads lib
   -DAF_FORGE_PATH=${FORGE_PATH} # forge headers for building the graphics lib
   -DAF_BUILD_FORGE=OFF
-  -DAF_INSTALL_CMAKE_DIR=${CURRENT_PACKAGES_DIR}/share/${PORT} # for CMake configs/targets
-  )
+)
+
+if("cpu" IN_LIST FEATURES)
+    if(VCPKG_TARGET_IS_WINDOWS AND VCPKG_CRT_LINKAGE STREQUAL "static")
+      list(APPEND AF_DEFAULT_VCPKG_CMAKE_FLAGS "-DMKL_THREAD_LAYER=Sequential")
+    endif()
+    if(VCPKG_TARGET_ARCHITECTURE STREQUAL "x64")
+        list(APPEND AF_DEFAULT_VCPKG_CMAKE_FLAGS "-DINT_SIZE=8")
+        # This seems scary but only selects the MKL interface. 4 = lp; 8 = ilp; Since x64 has ilp as the default use it!
+    endif()
+endif()
 
 # bin/dll directory for Windows non-static builds for the unified backend dll
 if (VCPKG_TARGET_IS_WINDOWS AND NOT VCPKG_LIBRARY_LINKAGE STREQUAL "static")
@@ -66,20 +87,35 @@ vcpkg_check_features(
 )
 
 # Build and install
-vcpkg_configure_cmake(
-  SOURCE_PATH ${SOURCE_PATH}
-  PREFER_NINJA
+vcpkg_cmake_configure(
+  SOURCE_PATH "${SOURCE_PATH}"
+  DISABLE_PARALLEL_CONFIGURE
   OPTIONS
     ${AF_DEFAULT_VCPKG_CMAKE_FLAGS}
     ${AF_BACKEND_FEATURE_OPTIONS}
-  )
-vcpkg_install_cmake()
+  MAYBE_UNUSED_VARIABLES
+    AF_CPU_THREAD_PATH
+)
+vcpkg_cmake_install()
 
 vcpkg_copy_pdbs()
 
-file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
-file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
+if(NOT VCPKG_TARGET_IS_WINDOWS)
+    vcpkg_cmake_config_fixup(CONFIG_PATH share/ArrayFire/cmake)
+else()
+    vcpkg_cmake_config_fixup(CONFIG_PATH cmake)
+endif()
+
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include" 
+    "${CURRENT_PACKAGES_DIR}/debug/examples"
+    "${CURRENT_PACKAGES_DIR}/debug/share"
+    "${CURRENT_PACKAGES_DIR}/examples"
+    "${CURRENT_PACKAGES_DIR}/LICENSES"
+    "${CURRENT_PACKAGES_DIR}/debug/LICENSES")
+if(FEATURES STREQUAL "core")
+    file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug")
+endif()
 
 # Copyright and license
-file(INSTALL ${SOURCE_PATH}/COPYRIGHT.md DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT})
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+file(INSTALL "${SOURCE_PATH}/COPYRIGHT.md" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

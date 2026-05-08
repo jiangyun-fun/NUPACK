@@ -4,16 +4,18 @@ if(CMAKE_HOST_WIN32 AND VCPKG_CMAKE_SYSTEM_NAME AND NOT VCPKG_CMAKE_SYSTEM_NAME 
     return()
 endif()
 
-set(BOOST_VERSION 1.75.0.beta1)
+set(BOOST_VERSION ${VERSION})
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO boostorg/build
-    REF boost-${BOOST_VERSION}
-    SHA512 e5dd73ef41d341e2bce25677389502d22ca7f328e7fdbb91d95aac415f7b490008d75ff0a63f8e4bd9427215f863c161ec9573c29b663b727df4b60e25a3aac2
+    REF boost-${VERSION}
+    SHA512 6684fa1954f75b6d4e0007622a4fe44f105a3cee05a39c8ed20e252ab3f9aa4bb23450b085d0e241ed14a02d9b37393d831025e1df7572e92215530906252ea5
     HEAD_REF master
     PATCHES
-        fix_options.patch
+        0002-fix-get-version.patch
+        0003-fix-emscripten.patch
+        0004-workaround-MSVC-codegen-bug-in-17.5-on-ARM64.patch
 )
 
 vcpkg_download_distfile(ARCHIVE
@@ -25,11 +27,16 @@ vcpkg_download_distfile(ARCHIVE
 vcpkg_download_distfile(BOOSTCPP_ARCHIVE
     URLS "https://raw.githubusercontent.com/boostorg/boost/boost-${BOOST_VERSION}/boostcpp.jam"
     FILENAME "boost-${BOOST_VERSION}-boostcpp.jam"
-    SHA512 8cf929fa4a602342c859a6bbd5f9dda783ac29431d951bcf6cae4cb14377c1b3aed90bacd902b0f7d1807591cf5e1a244cf8fc3c6cc6e0a4056db145b58f51df
+    SHA512 8bbd436749a1079ad2fb77cdf65b893f35260a9bdd52b360180780e83ff0f90595693f27641745d6db3a7dbc0e3ba5947e23790e99a8aeb94bfc5fb910d16df6
 )
 
+# https://github.com/boostorg/boost/pull/206
+# do not add version suffix for android
+file(READ "${BOOSTCPP_ARCHIVE}" _contents)
+string(REPLACE "aix &&" "aix android &&" _contents "${_contents}")
+file(WRITE "${SOURCE_PATH}/boostcpp.jam" "${_contents}")
+
 file(INSTALL ${ARCHIVE} DESTINATION ${CURRENT_PACKAGES_DIR}/share/boost-build RENAME copyright)
-file(INSTALL ${BOOSTCPP_ARCHIVE} DESTINATION ${CURRENT_PACKAGES_DIR}/tools/boost-build RENAME boostcpp.jam)
 
 # This fixes the lib path to use desktop libs instead of uwp -- TODO: improve this with better "host" compilation
 string(REPLACE "\\store\\;" "\\;" LIB "$ENV{LIB}")

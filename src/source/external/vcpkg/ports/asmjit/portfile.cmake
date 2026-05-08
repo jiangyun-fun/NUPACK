@@ -1,32 +1,30 @@
-vcpkg_fail_port_install(ON_ARCH "arm")
-
 vcpkg_from_github(
-  OUT_SOURCE_PATH SOURCE_PATH
-  REPO asmjit/asmjit
-  REF 5bc166efdb419f88bd5b5774c62cfc4d08a0bfa4 # accessed on 2020-09-14
-  SHA512 6e31617e62dccbec5fa4d8aeacb1076167f870578a0dd2915403d414f8fcaab16692968287f912dc41a2ec7d10a343d5b687144f04d2ec7adb2880044752543c
-  HEAD_REF master
+    OUT_SOURCE_PATH SOURCE_PATH
+    REPO asmjit/asmjit
+    REF e1b20711cc40c29ec4918b54e328ace96470f6e5 # commited on 2025-01-22
+    SHA512 5d40840ce203bcef86d81b3538be7a4443dbcba52735cf9c90bc9c974d3c7e1ab75ff0fd7e2c72533d73884cce93808e63aa2228c2b7c5376aee4437070714a2
+    HEAD_REF master
 )
 
-if(VCPKG_LIBRARY_LINKAGE STREQUAL static)
-    set(ASMJIT_STATIC 1)
-else()
-    set(ASMJIT_STATIC 0)
-endif()
+string(COMPARE EQUAL "${VCPKG_LIBRARY_LINKAGE}" "static" ASMJIT_STATIC)
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
-    OPTIONS -DASMJIT_STATIC=${ASMJIT_STATIC}
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        -DASMJIT_STATIC=${ASMJIT_STATIC}
  )
 
-
-vcpkg_install_cmake()
+vcpkg_cmake_install()
 vcpkg_copy_pdbs()
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/asmjit)
 
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/asmjit)
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
+if(VCPKG_LIBRARY_LINKAGE STREQUAL "static")
+    vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/include/asmjit/core/api-config.h"
+        "#if !defined(ASMJIT_STATIC)"
+        "#if 0"
+    )
+endif()
 
-# Handle copyright
-file(INSTALL ${SOURCE_PATH}/LICENSE.md DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE.md")

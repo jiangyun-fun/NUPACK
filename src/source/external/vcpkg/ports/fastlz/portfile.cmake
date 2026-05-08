@@ -3,23 +3,20 @@ vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO ariya/FastLZ
-    REF f1217348a868bdb9ee0730244475aee05ab329c5
-    SHA512 444465aa5d830f54b86112cbd0431099d8e1a11d46bd02e1dc5dc0b3d772736624287e6bc328159195197d0d08cb659d39c59c5336ffa432032f3798e04f4440
+    REF b1342dabcf5257ab303743c9332fe75e9147a011 #2024-08-02
+    SHA512 a9c440c60e0d4fd9535a5438f3227e626c27ccd26cdcc9787c0dda5011b980c12ef46c7ddd2f197f6cc3bcef39755341d34214be9a508871ee3e1a24631a87b5
     HEAD_REF master
 )
 
-file(COPY ${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt DESTINATION ${SOURCE_PATH})
+file(COPY "${CMAKE_CURRENT_LIST_DIR}/CMakeLists.txt" DESTINATION "${SOURCE_PATH}")
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
 
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/include)
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/include")
 
 # Handle copyright
-file(COPY ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/fastlz)
-file(RENAME ${CURRENT_PACKAGES_DIR}/share/fastlz/LICENSE ${CURRENT_PACKAGES_DIR}/share/fastlz/copyright)
-vcpkg_copy_pdbs()
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE.MIT")

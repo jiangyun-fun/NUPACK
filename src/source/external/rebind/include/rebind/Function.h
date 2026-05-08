@@ -111,7 +111,7 @@ struct Callback {
     Function function;
 
     Callback() = default;
-    Callback(Function f, Caller c) : function(std::move(f)), caller(std::move(c)) {}
+    Callback(Function f, Caller c) :  caller(std::move(c)), function(std::move(f)) {}
 
     template <class ...Ts>
     R operator()(Ts &&...ts) const {

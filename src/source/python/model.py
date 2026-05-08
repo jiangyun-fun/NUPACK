@@ -1,8 +1,7 @@
-import enum, numpy
+import enum, numpy, yaml
 
 from .utility import nbits, match, check_instance
-from .constants import as_sequences
-from .core import PairList, JSON, Pickleable, RawComplex
+from .core import PairList, JSON, Pickleable, Complex, SequenceList, standardize_alphabet
 from .rebind import forward, Dict
 
 ################################################################################
@@ -43,24 +42,11 @@ class ParameterFile:
 
     def __init__(self, name_or_file='rna'):
         '''
-        Initialize from parameter set name or file name
+        Initialize from parameter set name or file name. The following rules are applied:
         - 'rna'/'RNA' is translated to 'rna06'
         - 'dna'/'DNA' is translated to 'dna04'
+        - 'dna04' is translated to 'dna04.2'
         '''
-
-################################################################################
-
-@forward
-class ParameterData:
-    '''
-    Raw free energy or enthalpy parameters loaded from parameter files
-    '''
-
-    def __init__(self, file: ParameterFile, kind: str):
-        '''Initialize from file name and kind'''
-
-    def array(self) -> numpy.ndarray:
-        pass
 
 ################################################################################
 
@@ -71,16 +57,46 @@ class ParameterInfo:
     '''
     file: ParameterFile
     kind: str
-    loop_bias: float
+    na_molarity: float
+    mg_molarity: float
     temperature: float
+    immutable: bool
 
-    def __init__(self, file, kind, loop_bias=0, temperature=37+273.15):
+    def __init__(self, file, kind, na_molarity=1, mg_molarity=0, temperature=37+273.15, immutable=True):
         '''Initialize from file name and other metadata'''
 
 ################################################################################
 
 @forward
-class ParameterSet(ParameterData):
+class ParameterArray:
+    '''
+    Raw free energy or enthalpy parameters loaded from parameter files
+    '''
+    def to_array(self) -> numpy.ndarray:
+        '''Return flat (copied) array of contained parameters'''
+
+@forward
+class ParameterIndex:
+    '''
+    Class holding indexer into raw free energy parameters
+    '''
+    def load_json(self, alphabet, json):
+        '''Load raw parameter JSON to return a ParameterArray'''
+
+    def save_json(self, alphabet, parameters):
+        '''Save raw parameter JSON from a ParameterArray'''
+
+
+@forward
+class ParameterBase(ParameterIndex):
+    '''
+    Base class for all parameter sets
+    '''
+
+################################################################################
+
+@forward
+class ParameterSet(ParameterBase):
     '''
     Free energy parameters loaded from parameter files
     '''
@@ -91,6 +107,21 @@ class ParameterSet(ParameterData):
     def __init__(self, metadata: ParameterInfo):
         '''Initialize from metadata'''
 
+    def dangle3(self, a, b, c) -> float:
+        '''Dangle 5' energy'''
+
+    def dangle5(self, a, b, c) -> float:
+        '''Dangle 5' energy'''
+
+    def interior_mismatch(self, a, b, c, d) -> float:
+        '''Mismatch energy where b and c are paired, a 5' of b, c 5' of d'''
+
+    def hairpin_mismatch(self, a, b, c, d) -> float:
+        '''Mismatch energy where b and c are paired, a 5' of b, c 5' of d'''
+
+    def terminal_mismatch(self, a, b, c, d) -> float:
+        '''Mismatch energy where b and c are paired, a 5' of b, c 5' of d'''
+
 ################################################################################
 
 @forward
@@ -100,9 +131,11 @@ class Ensemble(enum.IntEnum):
     '''
     nostacking = 0
     stacking = 1
-    some_nupack3 = 2
-    all_nupack3 = 3
-    none_nupack3 = 4
+    dangle_stacking = 2
+    coaxial_stacking = 3
+    some_nupack3 = 4
+    all_nupack3 = 5
+    none_nupack3 = 6
 
     @classmethod
     def get(cls, key):
@@ -115,6 +148,8 @@ class Ensemble(enum.IntEnum):
 Ensemble.lookup = {
     'nostacking':   Ensemble.nostacking,
     'stacking':     Ensemble.stacking,
+    'dangle-stacking': Ensemble.dangle_stacking,
+    'coaxial-stacking': Ensemble.coaxial_stacking,
     'none-nupack3': Ensemble.none_nupack3,
     'some-nupack3': Ensemble.some_nupack3,
     'all-nupack3':  Ensemble.all_nupack3,
@@ -127,15 +162,13 @@ class Model(Pickleable):
     ensemble: Ensemble
     beta: float
     parameters: ParameterSet
-    conditions: Conditions
 
-    def __init__(self, ensemble=Ensemble.stacking, material="rna", wobble=None,
+    def __init__(self, ensemble=Ensemble.stacking, material="rna",
                  kelvin=None, celsius=37, sodium=1.0, magnesium=0.0, bits=64, _fun_=None):
         '''
         Construct a Model
 
-        - `ensemble`: str, one of (nostacking, stacking, none-nupack3, some-nupack3, all-nupack3)
-        - `wobble`: enable wobble pairs or not
+        - `ensemble`: str, one of (nostacking, stacking, dangle-stacking, coaxial-stacking, none-nupack3, some-nupack3, all-nupack3)
         - `material`: ParameterFile or equivalent object
         - `kelvin`: temperature in Kelvin
         - `celsius`: temperature in Celsius (may be specified instead of Kelvin).
@@ -149,15 +182,8 @@ class Model(Pickleable):
 
         bits = nbits(bits)
         cls = match(k for k, v in self._metadata_.items() if v.cast(int) == bits)
-        gu = 2 if wobble is None else int(bool(wobble))
 
-        _fun_(self, Ensemble.get(ensemble), material, conditions, gu, return_type=cls)
-
-    def save(self):
-        out = dict(pseudoknots=False, ensemble=int(self.ensemble))
-        out.update(self.conditions.save())
-        out.update(self.parameters.save())
-        return out
+        _fun_(self, Ensemble.get(ensemble), material, conditions, return_type=cls)
 
     @property
     def bits(self):
@@ -169,18 +195,11 @@ class Model(Pickleable):
         return self.parameters.material
 
     @property
-    def temperature(self):
+    def temperature(self) -> float:
         '''Temperature in Kelvin'''
-        return self.conditions.temperature
 
     def boltz(self, energy) -> float:
         '''Return the Boltzmann factor corresponding to a given free energy (kcal/mol)'''
-
-    def dangle5(self, b, c, d) -> float:
-        '''Return dangle energy on 5' side'''
-
-    def dangle3(self, b, c, d) -> float:
-        '''Return dangle energy on 5' side'''
 
     def stack_energies(self, loop, structure=None, _fun_=None):
         '''
@@ -204,10 +223,11 @@ class Model(Pickleable):
         loop, structure = loop_structure(loop, structure)
         return _fun_(self, loop, structure).cast(float)
 
-    def structure_energy(self, strands, structure, distinguishable=False):
+    def structure_energy(self, strands, structure, distinguishable=False, _fun_=None):
         '''Free energy of a given secondary structure (kcal/mol)'''
-        return structure_energy(as_sequences(strands), PairList(structure),
-                                self, distinguishable=distinguishable)
+        if self.material == 'DNA/RNA' and isinstance(strands, Complex):
+            strands = standardize_alphabet([strands], self.alphabet())[0]
+        return _fun_(self, SequenceList(strands, alphabet = self.alphabet()), PairList(structure), distinguishable).cast(float)
 
     def structure_probability(self, strands, structure, free_energy):
         '''Probability of a given structure forming given its strands, structure, and complex free energy'''
@@ -221,19 +241,19 @@ class Model(Pickleable):
 
 def loop_structure(loop, structure, _fun_=None):
     '''Return parsed loop and index of nick for a specified loop structure'''
-    loop = RawComplex(loop)
+    loop = SequenceList(loop)
     if structure is None:
         return loop, -1
     if isinstance(structure, int):
         return loop, structure
-    return loop, _fun_(loop.strands, PairList(structure))
+    return loop, _fun_(loop, PairList(structure))
 
 ################################################################################
 
-def structure_energy(strands, structure, model, distinguishable=False, _fun_=None):
+def structure_energy(strands, structure, model, distinguishable=False):
     '''Free energy of a given secondary structure in (kcal/mol)'''
     check_instance(model, Model)
-    return _fun_(strands, structure, model, distinguishable).cast(float)
+    return model.structure_energy(strands, structure, distinguishable)
 
 ################################################################################
 

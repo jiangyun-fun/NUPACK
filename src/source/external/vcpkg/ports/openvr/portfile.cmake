@@ -1,11 +1,10 @@
-vcpkg_fail_port_install(ON_ARCH "arm" ON_TARGET "uwp" "osx")
 vcpkg_check_linkage(ONLY_DYNAMIC_LIBRARY)
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO ValveSoftware/openvr
-    REF 3a010f0f668d8de59fcba75b14e08a6a08ec68a0 # v1.12.5
-    SHA512 a96b8d4bceb23cea64b8f276a4ec70a5ac2a09ec317da37561bf55527bbf3dda2423b4f7323ed93301384c387061498f6089ae1ef50ad6ff77f46f0af662ccd3
+    REF v2.5.1
+    SHA512 e224737e75f21ec074ca8450a1f1d81764aafeec924cc92a3f5571efc466d74280cb59b0ddfcd251431165ffbfae8aa0c8afe94144fe1c9106a3aa4c2761f3dc
     HEAD_REF master
 )
 

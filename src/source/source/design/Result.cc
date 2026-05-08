@@ -2,14 +2,14 @@
 #include <nupack/design/Designer.h>
 
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 Defect Result::defect(uint i) const {
     return at(defects, i);
 }
 
 Defect Result::weighted_defect(uint i) const {
-    if (len(weights) != len(defects)) NUPACK_BUG("weights must be same length as defects", len(defects), len(weights), defects, weights);
+    if (len(weights) != len(defects)) NUPACK_ERROR("weights must be same length as defects", len(defects), len(weights), defects, weights);
     return at(defects, i).scaled(at(weights, i));
 }
 
@@ -33,7 +33,7 @@ vec<real> Result::totals() const {
 
 
 vec<real> Result::weighted_totals() const {
-    if (len(weights) != len(defects)) NUPACK_BUG("weights must be same length as defects", len(defects), len(weights), defects, weights);
+    if (len(weights) != len(defects)) NUPACK_ERROR("weights must be same length as defects", len(defects), len(weights), defects, weights);
     vec<real> ret;
     zip(defects, weights, [&](auto const &d, auto w) {
         ret.emplace_back(d.total() * w);
@@ -42,10 +42,10 @@ vec<real> Result::weighted_totals() const {
 }
 
 
-SingleResult const & Result::full_evaluation(Designer const &designer) const {
+SingleResult const & Result::full_evaluation(Env const &env, Designer const &designer) const {
     /* evaluate if not done yet */
     if (len(evaluated.domains) == 0)
-        evaluated = SingleResult(designer, *this);
+        evaluated = SingleResult(env, designer, *this);
     return evaluated;
 }
 
@@ -153,4 +153,4 @@ vec<uint> uniform_sample(Result const &res, uint num) {
 }
 
 
-}}
+}

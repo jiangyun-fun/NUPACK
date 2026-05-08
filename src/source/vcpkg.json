@@ -1,0 +1,43 @@
+{
+    "vcpkg-configuration": {
+        "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg-configuration.schema.json",
+        "overlay-ports": ["ports/taskflow", "ports/gecode", "ports/libsimdpp", "ports/armadillo", "ports/protobuf"]
+    },
+    "dependencies": [
+        {"name": "abseil", "features": ["cxx17"]},
+        "gecode",
+        "tbb",
+        "nlohmann-json",
+        "taskflow",
+        "protobuf",
+        "backward-cpp",
+        "spdlog",
+        "fmt",
+        "boost-context",
+        "boost-graph",
+        "boost-align",
+        "boost-coroutine2",
+        "boost-algorithm",
+        "libsimdpp",
+        "magic-enum",
+        "boost-variant",
+        "boost-thread",
+        "boost-sort",
+        "boost-geometry",
+        "boost-ublas",
+        "boost-exception",
+        "yaml-cpp",
+        "boost-algorithm"
+    ],
+    "features": {
+        "armadillo": {
+            "description": "install built-in armadillo (preferred for most users)",
+            "dependencies": ["armadillo"]
+        },
+        "clapack": {
+            "description": "install clapack (use for static LAPACK linkage; additional compiler options may be required)",
+            "dependencies": ["clapack"]
+        }
+    },
+    "default-features": ["armadillo"]
+}

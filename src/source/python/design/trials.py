@@ -1,8 +1,7 @@
-import random, datetime, warnings, sys
+import datetime, warnings, sys, multiprocessing
 
 from tempfile import NamedTemporaryFile
 from pathlib import Path
-from concurrent.futures import ThreadPoolExecutor
 
 from .components import TimeInterval, WriteToFileCheckpoint, StopCondition
 import logging
@@ -19,11 +18,11 @@ class Trial:
     '''Class representing a single trial of a design optimization'''
 
     def __init__(self, design, *, index, checkpoint, interval):
-        self.design = design
-        self.spec = design.spec.copy()
-        self.spec.parameters.seed = random.randint(1,100000)
-        self.future = None
+        self.design = design.copy()
         self.index = int(index)
+        if self.design.options.seed:
+            self.design.options.seed += self.index
+        self.future = None
         self.checkpoint = None if checkpoint is None else checkpoint/str(index)
         self.interval = interval
         self.condition = None
@@ -31,7 +30,7 @@ class Trial:
 
     def setup_files(self):
         '''Set up filesystem storage'''
-        self.spec.parameters.log = NamedTemporaryFile(delete=False, suffix='.txt').name
+        self.design.options.log = NamedTemporaryFile(delete=False, suffix='.txt').name
 
     def run(self, restart):
         '''Main task within the future: runs the design'''
@@ -56,20 +55,19 @@ class Trial:
 
         if self.checkpoint is None:
             self.condition = StopCondition()
-            result = self.spec(restart=None if res is None else res.raw,
+            result = self.design.run_one(restart=None if res is None else res.raw,
                 checkpoint_condition=self.condition)
         else:
             checkpoint = self.checkpoint/'checkpoint'
             self.checkpoint.mkdir(exist_ok=True, parents=True)
 
             self.condition = TimeInterval(self.interval)
-            result = self.spec(restart=None if res is None else res.raw,
+            result = self.design.run_one(restart=None if res is None else res.raw,
                 checkpoint_condition=self.condition,
                 checkpoint_handler=WriteToFileCheckpoint(checkpoint))
 
-            self._final().write_text(result.to_json().dump(indent=4))
+            self._final().write_text(result.raw.to_json().dump(indent=4))
 
-        result = self.design.build_result(result)
         self.output = result
         return result
 
@@ -161,11 +159,11 @@ class Optimization:
 #             warnings.warn('''checkpoint is set to None.
 # * No check points will be saved and intermediate results are disabled!
 # * Use Optimization(design, checkpoint = \'some-directory/\') to save check points and enable intermediate results.''')
-
+        from .. import config
         self.started = False
         self.checkpoint = None if checkpoint is None else Path(checkpoint)
         self.trials = [self.trial_class(design, index=i, checkpoint=self.checkpoint, interval=interval) for i in range(trials)]
-        self.pool = ThreadPoolExecutor(trials)
+        self.pool = config.thread_pool
 
     def start(self, restart=None):
         '''Start the design running.'''

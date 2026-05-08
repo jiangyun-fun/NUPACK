@@ -5,7 +5,7 @@
 #include "Granularity.h"
 #include "Logging.h"
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 using ComplexWeights = std::map<uint, vec<real>>;
 
@@ -45,16 +45,15 @@ struct Tube : MemberOrdered {
     /** @brief includes indices to complexes included in the master designer list. */
     vec<TubeTarget> targets;
     string name;
-    Model<real> model;
     real_mat stoichiometry;
     real nucleotide_concentration;
+    real water_conc;
 
-    NUPACK_REFLECT(Tube, name, targets, model, stoichiometry, nucleotide_concentration);
+    NUPACK_REFLECT(Tube, name, targets, water_conc, stoichiometry, nucleotide_concentration);
 
     Tube() = default;
-    Tube(vec<TubeTarget> c, string name, vec<Complex> const &cs) :
-            targets(std::move(c)),
-            name(std::move(name)) {
+    Tube(vec<TubeTarget> c, string name, vec<Complex> const &cs, real water) :
+        targets(std::move(c)), name(std::move(name)), water_conc(water) {
         compute_invariants(cs);
     }
 
@@ -66,7 +65,7 @@ struct Tube : MemberOrdered {
      * @return the total concentration of nucleotides
      */
     void compute_nucleotide_concentration(vec<Complex> const &cs) {
-        nucleotide_concentration = sum(targets, [&](auto const &t) {return t.target_conc * len(cs[t.complex_index]);});
+        nucleotide_concentration = sum(targets, [&](auto const &t) {return t.target_conc * nt(cs[t.complex_index]);});
     }
     void compute_stoichiometry(vec<Complex> const &cs);
     void store_complex_indices(vec<Complex> const &cs);
@@ -95,14 +94,6 @@ struct Tube : MemberOrdered {
     real_col reinflate(real_col const &x, EnsemblePartition const &part) const;
 
     /**
-     * @brief extract model with parameters matching model from a cache of models
-     *
-     * @param map design object caching thermodynamic model(s) needed to evaluate complex and tube properties
-     * @return a
-     */
-    auto const & cached_models(ModelMap const &map) const {return map.get(model);}
-
-    /**
      * @brief create a view of the complexes making up the tube from the targets and vector of complexes
      *
      * @param cs the complexes which the tube is indexed into
@@ -121,6 +112,6 @@ Defect structural_defect(TubeTarget const &t, Defect const &comp_defect, real co
 Defect concentration_defect(TubeTarget const &t, real concentration);
 
 /* base, shared computation */
-real_col concentrations(real_mat const &A, real_col const &x0, real_col const &dG);
+real_col solve_concentrations(real_mat const &A, real_col const &x0, real_col const &dG);
 
-}}
+}

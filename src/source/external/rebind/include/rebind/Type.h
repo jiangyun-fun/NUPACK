@@ -84,8 +84,8 @@ public:
     std::string name() const noexcept {return demangle(info().name());}
     constexpr Qualifier qualifier() const noexcept {return p.second;}
 
-    operator std::type_info const &() const noexcept {return info();}
-    operator std::type_index() const noexcept {return info();}
+    explicit operator std::type_info const &() const noexcept {return info();}
+    explicit operator std::type_index() const noexcept {return info();}
 
     /// For now, hash code does not incorporate the qualifier
     std::size_t hash_code() const noexcept {return info().hash_code();}

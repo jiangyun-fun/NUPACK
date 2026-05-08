@@ -3,17 +3,13 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO boostorg/fiber
-    REF boost-1.75.0
-    SHA512 8b6355aaf804bbf8c33d65e7cb8c5c0e26ca33af0f4da49369073b92ff2afe84c992adf204c1aeedb137daa7f544ed7b40550fca294ed2ba62c8a615b4e5f7da
+    REF boost-${VERSION}
+    SHA512 10d8695746280fea3fc911936777e833d98c0f65616a9cef43d8bd1167306fe6797373acca91ac2f454beb4d9447e6d6d54ba73ff84596862c0947e3487b7781
     HEAD_REF master
 )
 
-file(READ "${SOURCE_PATH}/build/Jamfile.v2" _contents)
-string(REPLACE "import ../../config/checks/config" "import config/checks/config" _contents "${_contents}")
-file(WRITE "${SOURCE_PATH}/build/Jamfile.v2" "${_contents}")
-file(COPY "${CURRENT_INSTALLED_DIR}/share/boost-config/checks" DESTINATION "${SOURCE_PATH}/build/config")
-
-include(${CURRENT_INSTALLED_DIR}/share/boost-build/boost-modular-build.cmake)
-boost_modular_build(SOURCE_PATH ${SOURCE_PATH})
-include(${CURRENT_INSTALLED_DIR}/share/boost-vcpkg-helpers/boost-modular-headers.cmake)
-boost_modular_headers(SOURCE_PATH ${SOURCE_PATH})
+set(FEATURE_OPTIONS "")
+boost_configure_and_install(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS ${FEATURE_OPTIONS}
+)

@@ -27,19 +27,44 @@ std::array<std::size_t, 3> unit_evaluation_costs(uint n, std::size_t lmax) {
     return {number, block_cost, naive_cost};
 }
 
-EvaluationCostTable unit_evaluation_cost_table(uint n, real timeout) {
-    EvaluationCostTable out(n);
-    Local(0).spread(range(n), 1, [&] (Ignore, Ignore, auto n) {
+EvaluationCostTable unit_evaluation_cost_table(uint n0, real timeout) {
+    EvaluationCostTable out(n0);
+    for (auto n : range(n0)) {
         auto const t0 = std::chrono::high_resolution_clock::now();
         for (uint lmax = 1;
             std::chrono::duration<double>(std::chrono::high_resolution_clock::now() - t0).count() < timeout;
-            ++lmax
-        ) {
+            ++lmax) {
             print(n+1, lmax);
             out[n].emplace_back(unit_evaluation_costs(n+1, lmax));
         }
-    });
+    }
     return out;
 }
+/*
+struct MemoryCalculator {
+    std::set<SequenceList> sequences;
+    std::size_t entries = 0;
+
+    void add_impl(SequenceList const &v, std::size_t max_size) {
+        for (uint i = 0; i != max_size; ++i) {
+            for (auto b = v.begin(); b != v.end()-i; ++b) {
+                auto [iter, inserted] = sequences.emplace(b, b+i+1);
+                if (inserted) entries += sq(sum(*iter, len));
+            }
+        }
+    }
+
+    void add_impl(SequenceList v, bool pairs) {
+        if (pairs) {
+            v.insert(v.end(), v.begin(), v.end());
+            add_impl(v, v.size()+1);
+        } else {
+            add_impl(v, v.size());
+        }
+    }
+
+    std::size_t usage(std::size_t mem_per_entry) const {return entries * mem_per_entry;}
+};
+*/
 
 }

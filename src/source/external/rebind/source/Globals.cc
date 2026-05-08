@@ -37,7 +37,6 @@ std::unordered_map<TypeIndex, std::string> type_names = {
     {typeid(std::string),      "str"},
     {typeid(TypeIndex),        "TypeIndex"},
     {typeid(Binary),           "Binary"},
-    {typeid(BinaryView),       "BinaryView"},
     {typeid(BinaryData),       "BinaryData"},
     {typeid(ArrayView),        "ArrayView"},
     {typeid(Function),         "Function"},

@@ -1,6 +1,8 @@
 #include <nupack/types/Structure.h>
 #include <nupack/reflect/Serialize.h>
 
+#include <boost/graph/adjacency_list.hpp>
+#include <boost/graph/connected_components.hpp>
 #include <regex>
 
 namespace nupack {
@@ -37,31 +39,6 @@ string Structure::parse_struc(string_view s0) {
         int repeats = m[2].empty() ? 1 : std::stoi(m[2]);
         string cur = m[3].empty() ? m[1] : m[3];
         for (auto i : range(repeats)) ss << cur;
-    }
-
-    return ss.str();
-}
-
-/******************************************************************************************/
-
-/**
- * @brief Return a minimal length run-length enconding of the dot-parens-plus structure
- * @details For single character runs, e.g. the unpaired base in (((+.))), the
- *     number "1" will not be included in the output string as it is
- *     redundant.
- * @return a minimal length dpp-rle string representation of the Structure.
- */
-string Structure::dp_rle() const {
-    auto s = dp();
-    static std::regex dp_run("\\(+|\\.+|\\)+|\\+");
-
-    std::stringstream ss;
-    auto end = std::sregex_iterator();
-    for (auto i = std::sregex_iterator(s.begin(), s.end(), dp_run); i != end; ++i) {
-        auto run = i->str();
-        auto n = len(run);
-        if (n == 1) ss << run;
-        else ss << run[0] << std::to_string(n);
     }
 
     return ss.str();
@@ -106,34 +83,23 @@ void PairList::throw_if_invalid() const {
     });
 }
 
-bool PairList::is_connected(small_vec<uint> const &nicks) const {
-    NUPACK_ASSERT(!values.empty(), "empty pairs");
-    NUPACK_ASSERT(!nicks.empty(), "empty nicks");
+uint PairList::n_complexes(Nicks const &nicks) const {
+    using Graph = boost::adjacency_list<boost::vecS, boost::vecS, boost::undirectedS, boost::no_property, boost::no_property>;
+    if (values.empty() || nicks.empty()) return 0;
+    NUPACK_REQUIRE(nicks.back(), ==, len(values));
+    auto const reduced = view(nicks, nicks[0] == 0, len(nicks));
 
-    small_vec<bool> visited(len(values));
-    std::vector<std::pair<uint, uint>> stack;
-
-    stack.emplace_back(0, 0);
-
-    while (!stack.empty()) {
-        auto [i, s] = stack.back();
-        stack.pop_back();
-        visited[i] = true;
-
-        if (auto j = values[i]; !visited[j]) {
-            stack.emplace_back(j, std::upper_bound(nicks.begin(), nicks.end(), j) - nicks.begin());
-        }
-
-        if (i+1 < nicks[s] && !visited[i+1]) {
-            stack.emplace_back(i+1, s);
-        }
-
-        if (i > (s ? nicks[s-1] : 0) && !visited[i-1]) {
-            stack.emplace_back(i-1, s);
-        }
-    }
-
-    return all_of(visited);
+    vec<uint> strand_index;
+    strand_index.reserve(len(values));
+    for (auto i : indices(reduced))
+        strand_index.insert(strand_index.end(), reduced[i] - (i ? reduced[i-1] : 0), i);
+    
+    Graph graph(len(reduced));
+    for_each_pair([&](auto a, auto b) {
+        boost::add_edge(strand_index[a], strand_index[b], graph);
+    });
+    vec<uint> complexes(len(reduced));
+    return boost::connected_components(graph, complexes.data());
 }
 
 /******************************************************************************************/

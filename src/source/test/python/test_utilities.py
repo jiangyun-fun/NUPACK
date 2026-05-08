@@ -1,14 +1,16 @@
 from nupack import *
 import numpy as np
 
+dump = lambda *args: [str(a) for a in args]
+
 ################################################################################
 
 def test_strand():
-    assert str(RawStrand('A4')) == 'AAAA'
-    assert str(RawStrand('AAAA')) == 'AAAA'
-    assert RawStrand('A4') == RawStrand('AAAA')
-    a = RawStrand('AAAA')
-    assert a == RawStrand(a)
+    assert str(Strand('A4', name='a')) == 'AAAA'
+    assert str(Strand('AAAA', name='a')) == 'AAAA'
+    assert Strand('A4', name='a') == Strand('AAAA', name='a')
+    a = Strand('AAAA', name='a')
+    assert a == Strand(str(a), name='a')
     a2 = TargetStrand([Domain('AAAA', name='blah')], name='blah2')
 
 def test_domain():
@@ -16,10 +18,6 @@ def test_domain():
     e = Domain('A4', name='blah2')
     assert d == d
     assert d != e
-
-def test_complex():
-    assert RawComplex('A+A') == RawComplex(['A', 'A'])
-    assert RawComplex([RawStrand('A'), RawStrand('T')]) == RawComplex('A+T')
 
 ################################################################################
 
@@ -46,37 +44,37 @@ def test_pairs():
 
 def test_mfe():
     structures = mfe(['A4', 'T4'], model=Model())
-    print(structures)
+    dump(structures)
 
 ################################################################################
 
 def test_energy():
     e = energy(['AAAAT'], '(...)', model=Model())
-    print(e)
+    dump(e)
 
 ################################################################################
 
 def test_prob():
     p = structure_probability(['AAAAT'], '(...)', model=Model())
-    print(p)
+    dump(p)
 
 ################################################################################
 
 def test_count():
     n = ensemble_size(['AAAAT'], model=Model())
-    print(n, type(n))
+    dump(n, type(n))
 
 ################################################################################
 
 def test_subopt():
     s = subopt(['AAAATTTT'], energy_gap=1.5, model=Model())
-    print(s)
+    dump(s)
 
 ################################################################################
 
 def test_sample():
     s = sample(['AAAATTTT'], num_sample=100, model=Model())
-    print(s)
+    dump(s)
 
 ################################################################################
 
@@ -94,20 +92,23 @@ def test_structure_energy():
 
 def test_design():
     designed_sequences = des('(((+)))', model=Model())
-    print(designed_sequences)
+    dump(designed_sequences)
     # --> ['CCC', 'GGG']
 
 # ################################################################################
 
 def test_defect():
     my_defect = defect('(((+)))', ['CCC', 'GGG'], model=Model())
-    print(my_defect)
+    dump(my_defect)
     # --> ['CCC', 'GGG']
 
 def test_seq_distance():
     assert seq_distance('AA+TT', 'AA+CC') == 2
     assert seq_distance('TT', 'CC') == 2
     assert seq_distance(['TT'], ['CC']) == 2
+
+    assert seq_distance('AA+TT', 'RR+ST') == 1
+    assert seq_distance('RR+SS', 'RR+ST') == 1
 
 
 def test_struc_distance():

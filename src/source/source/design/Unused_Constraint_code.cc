@@ -345,7 +345,7 @@ struct BranchState {
             prune_back(i);
             // BEEP(top().second, x);
             for (auto j : top().second) if (x.in(j)) return j;
-            NUPACK_BUG("should never get here!", top(), x);
+            NUPACK_ERROR("should never get here!", top(), x);
         }
 
         return create_list(space, x, i);

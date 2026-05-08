@@ -125,11 +125,15 @@ public:
 };
 
 extern thread_local std::shared_ptr<std::atomic<int>> ThreadLocalSignal;
+
 /// Throw a SignalError if there are any signals
 void throw_if_signal();
+int exchange_signal(int) noexcept;
+int fetch_signal() noexcept;
 
 void set_static_signal(int code);
 
 /******************************************************************************************/
+
 
 }

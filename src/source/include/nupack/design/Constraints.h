@@ -1,5 +1,6 @@
 #pragma once
 #include "../types/Sequence.h"
+#include "../types/Alphabet.h"
 #include "../standard/Optional.h"
 #include "../standard/Variant.h"
 #include "custom_csp/constraint_handler.h"
@@ -8,7 +9,9 @@
 #include <gecode/minimodel.hh>
 #include <gecode/search.hh>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
+
+/******************************************************************************************/
 
 using custom_csp::ConstraintHandler;
 
@@ -18,7 +21,6 @@ using Gecode::IntVar;
 using Gecode::IntSet;
 using Gecode::IntAFC;
 
-vec<int> nuc_values(std::array<bool, 4> const &);
 int random_nuc(IntVar);
 IntSet nuc_values(Base base);
 
@@ -29,25 +31,28 @@ using DictWord = vec<vec<int>>;
 using DictWords = vec<DictWord>;
 using Dictionary = vec<DictWords>;
 
+/******************************************************************************************/
 
 struct WordRef {
     Dictionary const * dictionary;
     uint index;
 
-    WordRef() = default;
+    // WordRef() = default;
 
     DictWords const & words() const { return (*dictionary).at(index); }
     DictWord const & word() const { return words()[0]; }
 };
 
+/******************************************************************************************/
 
 struct NucSpace : public Space {
-    using simple_type = True;
     IntVarArray nucs;
-    Sequence const * ref;
+    Sequence reference; // I think this is the starting sequence before mutation (?)
     IntVarArray extras;
 
-    NucSpace(Sequence const &);
+    NUPACK_REFLECT(NucSpace, reference);
+
+    NucSpace(Domain const &);
     NucSpace(NucSpace &);
 
     NucSpace * copy();
@@ -64,8 +69,9 @@ struct NucSpace : public Space {
     void add_reference(Sequence const &);
 
     void match_constraint(int, int);
-    void complementarity_constraint(int, int, bool wobble);
-    void pattern_constraint(vec<int> const &, Sequence const &);
+    void complementarity_constraint(Alphabet const &, BasePairing const &, int, int, bool);
+    void pairing_constraint(BasePairing const &pairs, int, int);
+    void pattern_constraint(vec<int> const &, Domain const &);
     void diversity_constraint(vec<int> const &, int, int);
     // void word_constraint(vec<int> const &, vec<Sequence> const &); /* library and window */
     void word_constraint(vec<int> const &, WordRef);
@@ -74,9 +80,11 @@ struct NucSpace : public Space {
     explicit operator Sequence() const;
 
     friend std::ostream & operator<<(std::ostream &os, NucSpace const &space) {
-        return os << "nucs: " << space.nucs << ", ref: " << space.ref << ", extras: " << space.extras;
+        return os << "nucs: " << space.nucs << ", ref: " << space.reference.save_repr() << ", extras: " << space.extras;
     }
 };
+
+/******************************************************************************************/
 
 struct RunningAverage {
     uint count {0};
@@ -87,7 +95,11 @@ struct RunningAverage {
     real add_value(real);
 };
 
-static_assert(std::is_copy_constructible_v<ConstraintHandler>);
+/******************************************************************************************/
+
+// static_assert(std::is_copy_constructible_v<ConstraintHandler>);
+
+/******************************************************************************************/
 
 struct Constraints {
     std::unique_ptr<NucSpace> initial {nullptr};
@@ -102,7 +114,7 @@ struct Constraints {
     /** reference sequences for word constraints */
     std::unique_ptr<Dictionary> dictionary {std::make_unique<Dictionary>()};
 
-    Constraints(Sequence const &);
+    Constraints(Alphabet, Domain const &);
 
     Constraints() = default;
     Constraints(Constraints const &c) = delete; //: handler(c.handler), msec_cutoff(c.msec_cutoff), old_mut_time(c.old_mut_time), num_extra_vars(c.num_extra_vars)
@@ -112,11 +124,12 @@ struct Constraints {
 
     /* functions for adding constraints to NucSpace */
     void match_constraint(int, int);
-    void complementarity_constraint(int, int, bool wobble);
-    void pattern_constraint(vec<int> const &, Sequence const &);
+    void complementarity_constraint(Alphabet const &, BasePairing const &, int, int, bool);
+    void pairing_constraint(BasePairing const &, int, int);
+    void pattern_constraint(vec<int> const &, Domain const &);
     void diversity_constraint(vec<int> const &, int, int);
-    void word_constraint(vec<int> const &, vec<Sequence> const &); /* library and window */
-    void similarity_constraint(vec<int> const &, Sequence const &, std::pair<real, real>);
+    void word_constraint(vec<int> const &, DomainList const &); /* library and window */
+    void similarity_constraint(vec<int> const &, Domain const &, same_pair<real>);
 
     Optional<Sequence> initial_sequence();
     Optional<Sequence> make_mutation(Sequence const &, vec<int>);
@@ -125,7 +138,7 @@ struct Constraints {
 
     Gecode::Search::Options search_options() const;
 
-    NUPACK_REFLECT(Constraints, initial);
+    NUPACK_REFLECT(Constraints, initial, handler);
 
 private:
     Variant<Sequence, bool> make_new_mutation(Sequence const &, int);
@@ -136,5 +149,6 @@ private:
     void update_cutoff(real);
 };
 
-}
+/******************************************************************************************/
+
 }

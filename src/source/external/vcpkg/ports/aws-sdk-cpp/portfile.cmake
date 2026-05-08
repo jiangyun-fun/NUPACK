@@ -3,42 +3,56 @@ vcpkg_buildpath_length_warning(37)
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO aws/aws-sdk-cpp
-    REF b11ed430fa6a574cc842532192dfeb9bb09e62b4 # 1.8.126
-    SHA512 39e71f85d977b183df6f0d6d61a028db33573026f6abb8856f35e0e71398e2749db6dbdd033818a2c045ec42076fb23cdbae92608117db0a08ca88a05c825683
-    HEAD_REF master
+    REF "${VERSION}"
+    SHA512 f81b0afd9c3bb6e8181c6edc04de9b83af8a17e5bdf993e68fc00abc07980fadbe9e6b98635632cb96ed62c9b2753771f9cf6d91088d6ab42f409eec5d136faa
     PATCHES
-        patch-relocatable-rpath.patch
-        fix-AWSSDKCONFIG.patch
+        fix-aws-root.patch
+        lock-curl-http-and-tls-settings.patch
+        fix_find_curl.patch
+        find-dependency.patch
 )
 
 string(COMPARE EQUAL "${VCPKG_CRT_LINKAGE}" "dynamic" FORCE_SHARED_CRT)
 
-set(BUILD_ONLY core)
-
-include(${CMAKE_CURRENT_LIST_DIR}/compute_build_only.cmake)
-
+set(EXTRA_ARGS "")
 if(VCPKG_TARGET_IS_OSX OR VCPKG_TARGET_IS_IOS)
     set(rpath "@loader_path")
+elseif (VCPKG_TARGET_IS_ANDROID)
+    set(EXTRA_ARGS "-DTARGET_ARCH=ANDROID"
+            "-DGIT_EXECUTABLE=--invalid-git-executable--"
+            "-DGIT_FOUND=TRUE"
+            "-DNDK_DIR=$ENV{ANDROID_NDK_HOME}"
+            "-DANDROID_BUILD_ZLIB=FALSE"
+            "-DANDROID_BUILD_CURL=FALSE"
+            "-DANDROID_BUILD_OPENSSL=FALSE"
+            )
 else()
     set(rpath "\$ORIGIN")
 endif()
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
+
+string(REPLACE "awsmigrationhub" "AWSMigrationHub" targets "${FEATURES}")
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
     DISABLE_PARALLEL_CONFIGURE
-    PREFER_NINJA
     OPTIONS
-        -DENABLE_UNITY_BUILD=ON
-        -DENABLE_TESTING=OFF
-        -DFORCE_SHARED_CRT=${FORCE_SHARED_CRT}
-        -DCMAKE_DISABLE_FIND_PACKAGE_Git=TRUE
-        "-DBUILD_ONLY=${BUILD_ONLY}"
-        -DBUILD_DEPS=OFF
-        -DCMAKE_INSTALL_RPATH=${rpath}
+        ${EXTRA_ARGS}
+        "-DENABLE_UNITY_BUILD=ON"
+        "-DENABLE_TESTING=OFF"
+        "-DFORCE_SHARED_CRT=${FORCE_SHARED_CRT}"
+        "-DBUILD_ONLY=${targets}"
+        "-DBUILD_DEPS=OFF"
+        "-DBUILD_SHARED_LIBS=OFF"
+        "-DAWS_SDK_WARNINGS_ARE_ERRORS=OFF"
+        "-DCMAKE_INSTALL_RPATH=${rpath}"
+        "-DCMAKE_MODULE_PATH=${CURRENT_INSTALLED_DIR}/share/aws-c-common" # use extra cmake files
 )
+vcpkg_cmake_install()
 
-vcpkg_install_cmake()
-
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake TARGET_PATH share)
+foreach(TARGET IN LISTS targets)
+    string(TOLOWER "aws-cpp-sdk-${TARGET}" package)
+    vcpkg_cmake_config_fixup(PACKAGE_NAME "${package}" CONFIG_PATH "lib/cmake/aws-cpp-sdk-${TARGET}" DO_NOT_DELETE_PARENT_CONFIG_PATH)
+endforeach()
+vcpkg_cmake_config_fixup(PACKAGE_NAME "awssdk" CONFIG_PATH "lib/cmake/AWSSDK")
 
 vcpkg_copy_pdbs()
 
@@ -60,15 +74,15 @@ foreach(AWS_CONFIG IN LISTS AWS_CONFIGS)
 endforeach()
 
 file(REMOVE_RECURSE
-    ${CURRENT_PACKAGES_DIR}/debug/include
-    ${CURRENT_PACKAGES_DIR}/debug/share
-    ${CURRENT_PACKAGES_DIR}/lib/pkgconfig
-    ${CURRENT_PACKAGES_DIR}/debug/lib/pkgconfig
-    ${CURRENT_PACKAGES_DIR}/nuget
-    ${CURRENT_PACKAGES_DIR}/debug/nuget
+    "${CURRENT_PACKAGES_DIR}/debug/include"
+    "${CURRENT_PACKAGES_DIR}/debug/share"
+    "${CURRENT_PACKAGES_DIR}/lib/pkgconfig"
+    "${CURRENT_PACKAGES_DIR}/debug/lib/pkgconfig"
+    "${CURRENT_PACKAGES_DIR}/nuget"
+    "${CURRENT_PACKAGES_DIR}/debug/nuget"
 )
 
-if(VCPKG_LIBRARY_LINKAGE STREQUAL dynamic)
+if(VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")
     file(GLOB LIB_FILES ${CURRENT_PACKAGES_DIR}/bin/*.lib)
     if(LIB_FILES)
         file(COPY ${LIB_FILES} DESTINATION ${CURRENT_PACKAGES_DIR}/lib)
@@ -80,10 +94,9 @@ if(VCPKG_LIBRARY_LINKAGE STREQUAL dynamic)
         file(REMOVE ${DEBUG_LIB_FILES})
     endif()
 
-    file(APPEND ${CURRENT_PACKAGES_DIR}/include/aws/core/SDKConfig.h "#ifndef USE_IMPORT_EXPORT\n#define USE_IMPORT_EXPORT\n#endif")
+    file(APPEND "${CURRENT_PACKAGES_DIR}/include/aws/core/SDKConfig.h" "#ifndef USE_IMPORT_EXPORT\n#define USE_IMPORT_EXPORT\n#endif")
 endif()
 
-configure_file(${CURRENT_PORT_DIR}/usage ${CURRENT_PACKAGES_DIR}/share/${PORT}/usage @ONLY)
+configure_file("${CURRENT_PORT_DIR}/usage" "${CURRENT_PACKAGES_DIR}/share/${PORT}/usage" @ONLY)
 
-# Handle copyright
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

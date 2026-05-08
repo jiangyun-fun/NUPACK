@@ -91,13 +91,13 @@ struct EdgeSet : ConstIndexable<EdgeSet>, TotallyOrdered {
     /// Get edge const_iterator from edge value
     auto find_edge(Edge e) const {
         auto out = find(edges, e);
-        NUPACK_DASSERT(out != end_of(edges), "Could not find edge (const)");
+        NUPACK_QUICK_ASSERT(out != end_of(edges), "Could not find edge (const)");
         return out;
     }
     /// Get edge iterator from edge value
     auto find_edge(Edge e) {
         auto out = find(edges, e);
-        NUPACK_ASSERT(out != end_of(edges), "Could not find edge");
+        NUPACK_QUICK_ASSERT(out != end_of(edges), "Could not find edge");
         return out;
     }
     /// Get edge index from edge value
@@ -107,7 +107,7 @@ struct EdgeSet : ConstIndexable<EdgeSet>, TotallyOrdered {
 /****************************************************************************************/
 
 inline bool EdgeSet::is_root() const {
-    NUPACK_DREQUIRE(edges.at(parent_loc), ==, parent);
+    NUPACK_QUICK_REQUIRE(edges.at(parent_loc), ==, parent);
     return edges[parent_loc] == Ether;
 }
 
@@ -135,7 +135,7 @@ template <class W> void EdgeSet::transfer(Edge i, W const &w) {
 inline auto EdgeSet::get_locs(EdgeSet const &e1, EdgeSet const &e2) -> std::pair<size_type, size_type>{
     if (!Debug) return {e2.find_edge_index(e1.index), e1.find_edge_index(e2.index)};
     try {return {e2.find_edge_index(e1.index), e1.find_edge_index(e2.index)};}
-    catch(...) {NUPACK_BUG("Failure in get_locs", e1, e1.index, e2, e2.index);}
+    catch(...) {NUPACK_ERROR("Failure in get_locs", e1, e1.index, e2, e2.index);}
 }
 
 /****************************************************************************************/
@@ -153,7 +153,7 @@ inline Edge EdgeSet::flip(Edge new_parent) {
 /****************************************************************************************/
 
 inline void EdgeSet::rotate(size_type shift) {
-    NUPACK_DREQUIRE(shift, <, len(edges));
+    NUPACK_QUICK_REQUIRE(shift, <, len(edges));
     if (!shift) return;
     std::rotate(begin_of(edges), begin_of(edges) + shift, end_of(edges));
     parent_loc += len(edges) - shift;
@@ -170,7 +170,7 @@ inline void EdgeSet::update_parent_loc() {
 
 template <bool Check, class W>
 std::pair<Edge, Edge> EdgeSet::merge(EdgeSet const &k, W const &w) {
-    NUPACK_DREQUIRE(k.parent_loc, ==, k.find_edge_index(index));
+    NUPACK_QUICK_REQUIRE(k.parent_loc, ==, k.find_edge_index(index));
 
     auto kp = find_edge(k.index);
     auto pk = k.begin() + k.parent_loc;
@@ -184,7 +184,7 @@ std::pair<Edge, Edge> EdgeSet::merge(EdgeSet const &k, W const &w) {
     update_parent_loc();
 
     if (Check) for (auto e : edges) if (e != parent && e != Ether)
-        NUPACK_DREQUIRE(w(e).parent, ==, index, e);
+        NUPACK_QUICK_REQUIRE(w(e).parent, ==, index, e);
 
     return out;
 }
@@ -225,7 +225,8 @@ std::pair<Edge, Edge> EdgeSet::dissociate(EdgeSet &k, int nick, int k_nick, W co
 
 template <class W>
 void EdgeSet::associate(EdgeSet &k, size_type s, size_type ks, int nick, int k_nick, W const &w) {
-    {NUPACK_DREQUIRE(this, !=, &k); NUPACK_DASSERT(is_root());}
+    NUPACK_QUICK_REQUIRE(this, !=, &k); 
+    NUPACK_QUICK_ASSERT(is_root());
 
     EdgeList p_edges = {k.index};
     circular_cat(p_edges, edges, begin() + s + 1, begin() + nick);
@@ -254,8 +255,8 @@ void EdgeSet::associate(EdgeSet &k, size_type s, size_type ks, int nick, int k_n
 /****************************************************************************************/
 
 template <class W> EdgeSet EdgeSet::split(Edge new_self, size_type s1, size_type s2, W const &w) {
-    NUPACK_DREQUIRE(s1, <=, s2);
-    NUPACK_DREQUIRE(s2, <=, len(edges));
+    NUPACK_QUICK_REQUIRE(s1, <=, s2);
+    NUPACK_QUICK_REQUIRE(s2, <=, len(edges));
     EdgeSet out(new_self, index);
 
     // Get edges of new edge set

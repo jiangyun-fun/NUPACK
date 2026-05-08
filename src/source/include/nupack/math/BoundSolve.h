@@ -10,7 +10,7 @@ struct ScalarBound {
     double minimum, maximum, regularization;
     NUPACK_REFLECT(ScalarBound, minimum, maximum, regularization);
 
-    ScalarBound(double min=0, double max=*inf, double reg=0) : minimum(min), maximum(max), regularization(reg) {
+    ScalarBound(double min=0, double max=inf<double>(), double reg=0) : minimum(min), maximum(max), regularization(reg) {
         if (maximum < minimum) throw std::invalid_argument("minimum must not be greater than maximum.");
     }
 
@@ -20,7 +20,7 @@ struct ScalarBound {
     }
 
     template <class B>
-    auto regularize(B const &b) const {return regularization * arma::norm(b);}
+    auto regularize(B const &b) const {return regularization * arma::accu(b);}
 };
 
 /******************************************************************************************/
@@ -107,13 +107,13 @@ struct ClampSolver {
         for (; z != options.iters; ++z) {
             u = x;
             auto obj = objective;
-            for (uint k = 0; k != a.n_cols; ++k) {
+            for (uint k = 0; k != a.n_cols; ++k) { // O(n^2)
                 if (a_diag[k] != 0) { // else x(k) will just be left at 0
                     value_type const t = clamp(x[k] + m[k] / a_diag[k], k); // the latter is the analytic unconstrained argmin
-                    if (t != x[k]) m += (x[k] - t) * a.col(k); // old - new
+                    if (t != x[k]) m += (x[k] - t) * a.col(k); // old - new (O(n))
                     x[k] = t;
                 } else if (x[k] != 0) { // fix up residual if x(k) not already at 0 (e.g. from initialization)
-                    m += x[k] * a.col(k);
+                    m += x[k] * a.col(k); // (O(n))
                     x[k] = 0;
                 }
             }
@@ -188,6 +188,7 @@ struct LogNormalSolver : ClampSolver<A> {
  * Description: sequential Coordinate-wise algorithm for non-negative least square regression A x = b, s^t. x >= 0
  * Modified from: https://github.com/linxihui/Misc/blob/master/Practice/NMF/nnls.cpp
  * Reference: http://cmp.felk.cvut.cz/ftp/articles/franc/Franc-TR-2005-06.pdf
+ * "Sequential Coordinate-Wise Algorithm for the Non-negative Least Squares Problem" Franc 2005
  */
 template <class F, class A, class T>
 AlternatingResult<T> bound_solve(Mat<T> &x, A const &a, Mat<T> const &b, F const &bound, AlternatingOptions const &ops, Col<T> *norm2=nullptr) {
@@ -207,6 +208,38 @@ AlternatingResult<T> bound_solve(Mat<T> &x, A const &a, Mat<T> const &b, F const
     }
     return out;
 }
+
+// Solve diag(v) x = b obeying the constraints that C x <= c
+// x should initially be a satisfying solution
+template <class T>
+void diagonal_bound_solve(Col<T> &x, Col<T> const &v, Col<T> const &b, Mat<T> const &C, Col<T> const &c) {
+    Col<T> slack = c - C * x;
+    Col<T> norm2 = la::square(v % x - b);
+    la::uvec order;
+    for (uint t = 0; t != 100; ++t) {
+        order = la::sort_index(norm2, "descend");
+        // for (uint m = 0; m != order.n_rows; ++m) order(m) = m;
+        bool done = true;
+        for (auto i : order) {
+            // Solve for optimal shift disregarding constraints
+            T shift = b(i) / v(i) - x(i);
+            // Solve for max shift that is allowed in this direction
+            for (la::uword j = 0; j != c.n_rows; ++j)
+                if (!(C(j, i) * shift <= slack(j))) shift = slack(j) / C(j, i);
+
+            if (shift != 0) {
+                slack += -shift * C.col(i);
+                x(i) += shift;
+                done = false;
+                norm2(i) = sq(v(i) * x(i) - b(i));
+            }
+        }
+        if (done) break;
+    }
+}
+
+// template <class T>
+// void diagonal_bound_solve(Mat<T> &x, Col<T> const &v, Mat<T> const &B, Mat<T> const &)
 
 /******************************************************************************************/
 

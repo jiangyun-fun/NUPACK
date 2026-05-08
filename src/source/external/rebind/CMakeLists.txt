@@ -1,10 +1,11 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.10)
 project(rebind VERSION 0.0.0 LANGUAGES CXX)
 
 ################################################################################
 
 set(REBIND_PYTHON "python" CACHE STRING "Specified Python executable used to deduce include directory")
 set(REBIND_PYTHON_INCLUDE "" CACHE STRING "Specified include directory containing Python.h")
+option(REBIND_PIC "use position independent code" ON)
 
 ################################################################################
 
@@ -37,7 +38,7 @@ target_include_directories(rebind_interface INTERFACE ${CMAKE_CURRENT_SOURCE_DIR
 add_library(librebind STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/source/Source.cc
 )
-set_target_properties(librebind PROPERTIES OUTPUT_NAME rebind ${REBIND_STATIC_PROPERTIES})
+set_target_properties(librebind PROPERTIES OUTPUT_NAME rebind ${REBIND_STATIC_PROPERTIES} POSITION_INDEPENDENT_CODE ${REBIND_PIC})
 target_link_libraries(librebind PUBLIC rebind_interface)
 
 ################################################################################
@@ -54,7 +55,7 @@ set_property(GLOBAL PROPERTY rebind_module_files
 function(rebind_module module_name output_name)
     get_property(files GLOBAL PROPERTY rebind_module_files)
     add_library(${module_name} MODULE ${files})
-    set_target_properties(${module_name} PROPERTIES PREFIX "" OUTPUT_NAME ${output_name})
+    set_target_properties(${module_name} PROPERTIES PREFIX "" OUTPUT_NAME ${output_name} POSITION_INDEPENDENT_CODE ${REBIND_PIC})
 
     if(${CMAKE_CXX_COMPILER_ID} STREQUAL "GNU")
         set_target_properties(${module_name} PROPERTIES LINK_FLAGS "-Wl,-flat_namespace,-undefined,dynamic_lookup")

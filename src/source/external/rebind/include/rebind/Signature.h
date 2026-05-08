@@ -100,16 +100,21 @@ void scan(Pack<Ts...> p, Fs const &...fs) {return scan_packs(Pack<>(), p, fs...)
 template <class F, class=void>
 struct Signature;
 
+// Function
 template <class R, class ...Ts>
 struct Signature<R(Ts...)> : Pack<R, Ts...> {using return_type = R;};
+// Noexcept function
 template <class R, class ...Ts>
 struct Signature<R(Ts...) noexcept> : Pack<R, Ts...> {using return_type = R;};
 
+// Function pointer
 template <class R, class ...Ts>
 struct Signature<R(*)(Ts...)> : Signature<R(Ts...)> {using return_type = R;};
+// Noexcept function pointer
 template <class R, class ...Ts>
 struct Signature<R(*)(Ts...) noexcept> : Signature<R(Ts...)> {using return_type = R;};
 
+// Member function pointers
 #define REBIND_TMP(C, Q, C2) \
     template <class R, class C, class ...Ts> \
     struct Signature<R (C::* )(Ts...) Q> : Pack<R, C2, Ts...> {using return_type = R;};
@@ -120,9 +125,16 @@ struct Signature<R(*)(Ts...) noexcept> : Signature<R(Ts...)> {using return_type 
     REBIND_TMP(C, const &, C const &);
     REBIND_TMP(C, &&, C &&);
     REBIND_TMP(C, const &&, C const &&);
+
+    REBIND_TMP(C,  noexcept, C &);
+    REBIND_TMP(C, const noexcept, C const &);
+    REBIND_TMP(C, & noexcept, C &);
+    REBIND_TMP(C, const & noexcept, C const &);
+    REBIND_TMP(C, && noexcept, C &&);
+    REBIND_TMP(C, const && noexcept, C const &&);
 #undef REBIND_TMP
 
-/// this is tricky...
+/// Member variable
 template <class R, class C>
 struct Signature<R C::*> : Pack<R &, C &> {using return_type = R &;};
 
@@ -131,18 +143,28 @@ struct Signature<R C::*> : Pack<R &, C &> {using return_type = R &;};
 template <class T>
 struct FunctorSignature;
 
-#define REBIND_TMP(Q) template <class R, class C, class ...Ts> \
+#define REBIND_TMP(Q) \
+    template <class R, class C, class ...Ts> \
     struct FunctorSignature<R (C::* )(Ts...) Q> : Signature<R(Ts...)> {using return_type = R;};
+    
     REBIND_TMP( );
     REBIND_TMP(&);
     REBIND_TMP(&&);
     REBIND_TMP(const);
     REBIND_TMP(const &);
     REBIND_TMP(const &&);
+
+    REBIND_TMP(  noexcept);
+    REBIND_TMP(& noexcept);
+    REBIND_TMP(&& noexcept);
+    REBIND_TMP(const noexcept);
+    REBIND_TMP(const & noexcept);
+    REBIND_TMP(const && noexcept);
 #undef REBIND_TMP
 
 /******************************************************************************************/
 
+// Functor objects with operator()
 template <class F>
 struct Signature<F, std::void_t<decltype(&F::operator())>> : FunctorSignature<decltype(&F::operator())> {};
 

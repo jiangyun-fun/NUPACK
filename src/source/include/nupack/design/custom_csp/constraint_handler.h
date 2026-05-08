@@ -2,6 +2,7 @@
 
 #include "named_spec.h"
 #include "design_debug.h"
+#include "sequence_utils.h"
 
 #include "types.h"
 #include "adapter.h"
@@ -9,7 +10,6 @@
 #include <memory>
 #include <vector>
 #include <map>
-#include <string>
 #include <set>
 #include <queue>
 #include <tuple>
@@ -166,23 +166,37 @@ struct SolveStruc {
 };
 
 
-typedef enum COMPLEMENT_STRENGTH {
-    NUPACK_CS_NONE,
-    NUPACK_CS_WEAK,
-    NUPACK_CS_STRONG
-} complement_strength_t;
 
-
-class CompConstraint : MemberOrdered {
+class PairConstraint : MemberOrdered {
+    BasePairing pairing;
     int i;
     int j;
-    complement_strength_t strength;
 
 public:
-    NUPACK_REFLECT(CompConstraint, i, j, strength);
+    NUPACK_REFLECT(PairConstraint, i, j, pairing);
+    PairConstraint() = default;
+    PairConstraint(BasePairing a, int i, int j) : pairing(std::move(a)), i(i), j(j) {}
+
+    bool propagate_constraint(int modified, SolveStack & sstack, const SolveStruc & ss) const;
+
+    vec<int> get_constrained_vars() const { return {i, j}; }
+
+    friend std::ostream & operator<<(std::ostream &os, PairConstraint const &c) {
+        return os << "i: " << c.i << ", j: " << c.j;
+    }
+};
+
+class CompConstraint : MemberOrdered {
+    Alphabet alphabet;
+    BasePairing pairing;
+    int i;
+    int j;
+    bool wobble_mutations;
+
+public:
+    NUPACK_REFLECT(CompConstraint, i, j, alphabet, pairing, wobble_mutations);
     CompConstraint() = default;
-    CompConstraint(int i, int j, complement_strength_t strength) :
-        i(i), j(j), strength(strength) {}
+    CompConstraint(Alphabet a, BasePairing p, int i, int j, bool w) : alphabet(std::move(a)), pairing(std::move(p)), i(i), j(j), wobble_mutations(w) {}
 
     bool propagate_constraint(int modified, SolveStack & sstack, const SolveStruc & ss) const;
 
@@ -210,7 +224,7 @@ public:
 
 
 class PatternConstraint : MemberOrdered {
-    string constraint;
+    Domain constraint;
 
     // Nucleotide ids in order they are prevented in
     vec<int> nuc_ids;
@@ -225,10 +239,10 @@ public:
     PatternConstraint() = default;
     /**
      * @param vars the constrained variables
-     * @param constraint the sequence string representing the prevented pattern
+     * @param constraint the sequence wildcards representing the prevented pattern
      * @param spec the resolved sequence specification
      */
-    PatternConstraint(vec<int> const &vars, const string & constraint, const vec<int> & poss_nucs);
+    PatternConstraint(Alphabet const &, vec<int> const &vars, const Domain & constraint, vec<Wildcard> const &poss_nucs);
 
     /* * propagate the constraints for the current pattern constraint */
     bool propagate_constraint(int modified, SolveStack & sstack, const SolveStruc & ss) const;
@@ -253,9 +267,8 @@ public:
     WordConstraint() = default;
     // Create the constraint and add auxiliary variable to the
     // constraint_hander
-    WordConstraint(const vec<int> & vars,
-                   const vec<string> & words,
-                   int additional_var);
+    WordConstraint(Alphabet const &, const vec<int> & vars,
+                   const DomainList & words, int additional_var);
 
     bool propagate_constraint(int modified, SolveStack & sstack, const SolveStruc & ss) const;
     vec<int> get_constrained_vars() const;
@@ -274,7 +287,7 @@ class MatchConstraint : MemberOrdered {
 public:
     NUPACK_REFLECT(MatchConstraint, ranges, nuc_ids, match_nucs);
     MatchConstraint() = default;
-    MatchConstraint(const vec<int> & vars, const string & words,
+    MatchConstraint(Alphabet const &, const vec<int> & vars, const Domain & words,
                     vec<double> min_match, vec<double> max_match);
 
     bool propagate_constraint(int modified, SolveStack & sstack, const SolveStruc & ss) const;
@@ -285,25 +298,25 @@ public:
 
 inline int pick_random_int(int from, int to) { return ((int)(random_float() * (to - from))) + from; }
 
-using constraint_variant = Variant<CompConstraint, IdentConstraint, PatternConstraint, WordConstraint, MatchConstraint>;
+using constraint_variant = Variant<PairConstraint, CompConstraint, IdentConstraint, PatternConstraint, WordConstraint, MatchConstraint>;
 
 class ConstraintHandler : MemberOrdered {
     vec<constraint_variant> constraints;
-    AllowTable value_allowed;
-    /** @brief Map from variables to constraints that they take part in (constraints
-        to check when the range of the variable changes) */
-    vec<vec<int> > var_constraint_map;
+    AllowTable value_allowed; //< Vector of trinary masks for each nucleotide
+    vec<vec<int> > var_constraint_map; //<  Map from variables to constraints that they take part in (constraints to check when the range of the variable changes)
 
     int get_n_possibilities() const;
     bool propagate(std::shared_ptr<VariableNode> cur, SolveStruc & ss) const;
     bool propagate_all(std::shared_ptr<VariableNode> node, SolveStruc & ss) const;
 
 public:
-    NUPACK_REFLECT(ConstraintHandler, constraints, value_allowed, var_constraint_map);
+    Alphabet alphabet;
+    NUPACK_REFLECT(ConstraintHandler, alphabet, constraints, value_allowed, var_constraint_map);
     ConstraintHandler() = default;
+    ConstraintHandler(Alphabet a) : alphabet(std::move(a)) {}
 
     int add_variable(vec<trinary> allowed_vals);
-    int add_nucleotide_variable(int constraint);
+    // int add_nucleotide_variable(Wildcard constraint);
 
     vec<constraint_variant> const & get_constraints() const {return constraints;}
 
@@ -343,7 +356,7 @@ public:
      *    ret[i] = j variable i must be value j
      *    ret = [] <=> no valid assignments can be made
      */
-    vec<int> get_possible_nucleotides() const;
+    vec<Wildcard> get_possible_nucleotides() const;
 
     // friend std::ostream & operator<<(std::ostream &os, ConstraintHandler const &) {return os << "ConstraintHandler";}
 };

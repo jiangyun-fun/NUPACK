@@ -154,6 +154,11 @@ auto call_with(F &&f) {return [call=fw<F>(f)](auto &&...is) {
 
 /******************************************************************************************/
 
+template <class T>
+using same_pair = std::pair<T, T>;
+
+/******************************************************************************************/
+
 template <class T> struct constructor {
     template <class ...Ts> constexpr T operator()(Ts &&...ts) const {return T{fw<Ts>(ts)...};}
 };
@@ -287,8 +292,17 @@ template <class T> constexpr auto bitsof(T const &) {return CHAR_BIT * sizeof(T)
 /******************************************************************************************/
 
 struct Ignore {
-    template <class ...Ts>
-    Ignore(Ts const &...ts) {}
+    constexpr Ignore() = default;
+
+    template <class T>
+    constexpr Ignore(T const &) {}
+
+    template <class T>
+    constexpr Ignore const & operator=(T const &) const {return *this;}
 };
+
+/******************************************************************************************/
+
+void undefined_function();
 
 }

@@ -11,7 +11,7 @@ struct Structure : PairList {
     using base_type = PairList;
 
     Nicks nicks;
-    NUPACK_REFLECT_BASE(Structure, PairList, nicks);
+    NUPACK_EXTEND_REFLECT(Structure, PairList, nicks);
 
     Structure() = default;
 
@@ -25,10 +25,9 @@ struct Structure : PairList {
 
     Structure(PairList pairs, Nicks nicks) : PairList(std::move(pairs)), nicks(std::move(nicks)) {}
 
-    string dp() const {return PairList::dp(nicks);}
-    string dp_rle() const;
+    string dp(std::size_t n=0) const {return io::run_length_encoding(PairList::dp(nicks), n);}
 
-    bool is_connected() const {return PairList::is_connected(nicks);}
+    auto n_complexes() const {return PairList::n_complexes(nicks);}
     bool valid() const {return len(*this) > 0;}
 
     // Rotational symmetry of this structure
@@ -43,11 +42,11 @@ struct Structure : PairList {
 
     static string parse_struc(string_view s);
 
-    auto save_repr() const {return dp_rle();}
-    void load_repr(string s) {*this = Structure(s);}
-
+    json save_repr() const;
+    void load_repr(json const &);
+    
     friend std::ostream & operator<<(std::ostream &os, Structure const &s) {
-        return os << "Structure(\"" << s.dp_rle() << "\")";
+        return os << "Structure(\"" << s.dp(2) << "\")";
     }
 };
 
@@ -56,6 +55,7 @@ struct Structure : PairList {
 inline Structure operator"" _dp(char const *s) {return Structure(std::string_view(s));}
 inline Structure operator"" _dp(char const *s, std::size_t n) {return Structure(std::string_view(s, n));}
 
+PairList reduce_pairs(PairList const &p, SequenceList const &v);
 
 /******************************************************************************************/
 

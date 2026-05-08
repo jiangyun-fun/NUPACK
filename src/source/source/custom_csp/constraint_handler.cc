@@ -14,9 +14,12 @@
 #include <memory>
 #include <algorithm>
 
+/******************************************************************************************/
 
-namespace nupack {
-namespace custom_csp {
+namespace nupack::custom_csp {
+
+/******************************************************************************************/
+
 VariableNode::VariableNode() :
     depth(0), cost(0), tiebreaker(random_float()), parent(nullptr) {}
 
@@ -48,8 +51,6 @@ bool VariableNode::add_implications(AllowTable & allow_table,
 
     return success;
 }
-
-
 
 void VariableNode::change_branch(std::shared_ptr<VariableNode> from,
                                  std::shared_ptr<VariableNode> to, AllowTable & allow_table) {
@@ -111,7 +112,6 @@ void VariableNode::change_branch(std::shared_ptr<VariableNode> from,
         }
     }
 }
-
 
 
 void VariableNode::rollback_variables(AllowTable & allow_table) {
@@ -181,41 +181,32 @@ void SolveStruc::init_weights(AllowTable const &table) {
     weight = vmap(table, [](auto const &c) {return double(ConstraintHandler::get_n_unset(c));});
 }
 
+/******************************************************************************************/
 
-bool CompConstraint::propagate_constraint(int modified, SolveStack & sstack,
+bool PairConstraint::propagate_constraint(int modified, SolveStack & sstack,
         const SolveStruc & ss) const {
-    constexpr int n_bases = 4;
-    constexpr std::array<int, n_bases> base =   {{0, 1, 2, 3}};
-    constexpr std::array<int, n_bases> comp =   {{3, 2, 1, 0}};
-    constexpr std::array<int, n_bases> w_comp = {{ -1, -1, 3, 2}};
-
     bool satisfied = true;
-    if (strength != NUPACK_CS_NONE) {
-        int i_var = modified;
-        int j_var = -1;
-        if (i_var == i) {
-            j_var = j;
-        } else if (i_var == j) {
-            j_var = i;
-        }
-        if (j_var >= 0) {
-            vec<trinary> poss(n_bases, false);
-            for (auto i = 0; i < n_bases; i++) {
-                if (ss.value_allowed[i_var][i]) {
-                    poss[comp[base[i]]] = true;
-                    if (strength == NUPACK_CS_WEAK && w_comp[base[i]] >= 0) {
-                        poss[w_comp[base[i]]] = true;
-                    }
-                }
+    int i_var = modified;
+    int j_var = -1;
+    if (i_var == i) {
+        j_var = j;
+    } else if (i_var == j) {
+        j_var = i;
+    }
+    if (j_var >= 0) {
+        vec<trinary> poss(pairing.length, false);
+        for (auto i : range(pairing.length)) {
+            if (ss.value_allowed[i_var][i]) {
+                for (auto j : pairing.possible_pairs[i]) poss[+j] = true;
             }
+        }
 
-            for (auto i = 0; i < n_bases; i++) {
-                if (!poss[i]) {
-                    if (ss.value_allowed[j_var][i] == NUPACK_VV_UNSET) {
-                        sstack.push_back(j_var, i, NUPACK_VV_FALSE);
-                    } else if (ss.value_allowed[j_var][i] == NUPACK_VV_TRUE) {
-                        satisfied = false;
-                    }
+        for (auto i = 0; i < pairing.length; i++) {
+            if (!poss[i]) {
+                if (ss.value_allowed[j_var][i] == NUPACK_VV_UNSET) {
+                    sstack.push_back(j_var, i, NUPACK_VV_FALSE);
+                } else if (ss.value_allowed[j_var][i] == NUPACK_VV_TRUE) {
+                    satisfied = false;
                 }
             }
         }
@@ -223,10 +214,47 @@ bool CompConstraint::propagate_constraint(int modified, SolveStack & sstack,
     return satisfied;
 }
 
+/******************************************************************************************/
 
+bool CompConstraint::propagate_constraint(int modified, SolveStack & sstack, const SolveStruc & ss) const {
+    bool satisfied = true;
+    int i_var = modified;
+    int j_var = -1;
+    if (i_var == i) {
+        j_var = j;
+    } else if (i_var == j) {
+        j_var = i;
+    }
+    if (j_var >= 0) {
+        vec<trinary> poss(alphabet.length(), false); // all possible bases for the complement
+        for (auto b : alphabet.all()) {
+            if (ss.value_allowed[i_var][+b]) {
+                // add all possible complements to this base as possibilities
+                if (wobble_mutations) {
+                    for (auto a : alphabet.all())
+                        if (pairing.can_pair(a, b)) poss[+a] = true;
+                } else {
+                    poss[+alphabet.complement(b)] = true;
+                }
+            }
+        }
 
-bool IdentConstraint::propagate_constraint(int modified, SolveStack & sstack,
-        const SolveStruc & ss) const {
+        for (auto i = 0; i < alphabet.length(); i++) {
+            if (!poss[i]) {
+                if (ss.value_allowed[j_var][i] == NUPACK_VV_UNSET) {
+                    sstack.push_back(j_var, i, NUPACK_VV_FALSE);
+                } else if (ss.value_allowed[j_var][i] == NUPACK_VV_TRUE) {
+                    satisfied = false;
+                }
+            }
+        }
+    }
+    return satisfied;
+}
+
+/******************************************************************************************/
+
+bool IdentConstraint::propagate_constraint(int modified, SolveStack & sstack, const SolveStruc & ss) const {
     int i_var = modified;
     int j_var = -1;
     bool success = true;
@@ -238,8 +266,7 @@ bool IdentConstraint::propagate_constraint(int modified, SolveStack & sstack,
     if (j_var >= 0) {
         vec<trinary> poss(ss.value_allowed[i_var]);
 
-        constexpr int n_bases = 4;
-        for (auto i = 0; i < n_bases; i++) {
+        for (auto i = 0; i < poss.size(); i++) {
             if (ss.value_allowed[j_var][i] == NUPACK_VV_TRUE && !poss[i]) {
                 success = false;
             } else if (ss.value_allowed[j_var][i] == NUPACK_VV_UNSET && !poss[i]) {
@@ -251,12 +278,11 @@ bool IdentConstraint::propagate_constraint(int modified, SolveStack & sstack,
     return success;
 }
 
+/******************************************************************************************/
 
-
-PatternConstraint::PatternConstraint(vec<int> const & vars, const string & constraint,
-        const vec<int> & poss_nucs) :
-        nuc_ids(vars), constraint(constraint),
-        pattern(SequenceUtils::nucs_to_bools(SequenceUtils::str_to_nuc(constraint))) {
+PatternConstraint::PatternConstraint(Alphabet const &alphabet, vec<int> const & vars, const Domain & constraint, vec<Wildcard> const &poss_nucs) :
+        constraint(constraint), nuc_ids(vars),
+        pattern(SequenceUtils::nucs_to_bools(alphabet, constraint)) {
 
     for (auto i = 0; i < nuc_ids.size(); i++) nuc_id_map[nuc_ids[i]] = i;
 
@@ -270,7 +296,7 @@ PatternConstraint::PatternConstraint(vec<int> const & vars, const string & const
         trinary allowed = false; // is breaking the pattern even allowed?
         for (auto j = 0; j < pattern.size(); j++) {
             int nuc_id = nuc_ids[i + j];
-            auto callowed = SequenceUtils::nuc_to_bool(poss_nucs[nuc_id]);
+            auto callowed = SequenceUtils::nuc_to_bool(alphabet, poss_nucs[nuc_id]);
             NUPACK_DEBUG_CHECK(pattern[j].size() == callowed.size(), "invalid callowed size");
 
             for (auto k = 0; k < pattern[j].size(); k++) {
@@ -281,10 +307,7 @@ PatternConstraint::PatternConstraint(vec<int> const & vars, const string & const
     }
 }
 
-
-
-bool PatternConstraint::propagate_constraint(int modified, SolveStack & sstack,
-        const SolveStruc & ss) const {
+bool PatternConstraint::propagate_constraint(int modified, SolveStack & sstack, const SolveStruc & ss) const {
     // trivial constraint, see constructor
     if (starts.empty()) return true;
 
@@ -349,22 +372,20 @@ bool PatternConstraint::propagate_constraint(int modified, SolveStack & sstack,
     return success;
 }
 
+/******************************************************************************************/
 
-
-WordConstraint::WordConstraint(const vec<int> & vars,
-                               const vec<string> & constraint, int supp_var) :
+WordConstraint::WordConstraint(Alphabet const &alphabet, const vec<int> & vars, const DomainList & constraint, int supp_var) :
     supp_var(supp_var), nuc_ids(vars) {
     varval_to_ids.resize(vars.size());
-    for (auto & v : varval_to_ids) v.resize(4);
+    for (auto & v : varval_to_ids) v.resize(alphabet.length());
 
     auto i_val = 0;
     for (auto & con : constraint) {
-        NUPACK_CHECK(vars.size() == con.size(), "usize mismatch in WordConstraint");
+        NUPACK_REQUIRE(vars.size(), ==, con.size(), "usize mismatch in WordConstraint", vars, con);
         AllowTable cur_con;
         allowed_ind.emplace_back();
-        vec<int> int_pattern = SequenceUtils::str_to_nuc(con);
         for (auto i = 0; i < con.size(); i++) {
-            auto cur_allowed = SequenceUtils::nuc_to_bool(int_pattern[i]);
+            auto cur_allowed = SequenceUtils::nuc_to_bool(alphabet, con[i]);
             cur_con.push_back(cur_allowed);
             int n_allowed = 0;
             int all_ind = 0;
@@ -391,7 +412,7 @@ WordConstraint::WordConstraint(const vec<int> & vars,
     }
 }
 
-
+/******************************************************************************************/
 
 bool WordConstraint::propagate_constraint(int modified,
         SolveStack & sstack, const SolveStruc & ss) const {
@@ -457,33 +478,29 @@ bool WordConstraint::propagate_constraint(int modified,
     return satisfied;
 }
 
-
-
 vec<int> WordConstraint::get_constrained_vars() const {
     vec<int> ids = nuc_ids;
     ids.push_back(supp_var);
     return ids;
 }
 
+/******************************************************************************************/
 
-
-MatchConstraint::MatchConstraint(const vec<int> & vars,
-                                 const string & word, vec<double> min_match,
+MatchConstraint::MatchConstraint(Alphabet const &alphabet, const vec<int> & vars,
+                                 const Domain & word, vec<double> min_match,
                                  vec<double> max_match) {
     NUPACK_CHECK(min_match.size() == max_match.size(), "min and max match size mismatch");
     NUPACK_CHECK(word.size() == vars.size(), "Word / variable size mismatch");
 
     try {
-        vec<int> nuc_word = SequenceUtils::str_to_nuc(word);
-
         // add match ranges
         zip(min_match, max_match, [&](auto min, auto max) {
             ranges.emplace_back(min, max);
         });
 
         // add constrained variables and reference sequence
-        zip(nuc_word, vars, [&](auto const & w, auto v) {
-            match_nucs.push_back(SequenceUtils::nuc_to_bool(w));
+        zip(word, vars, [&](auto const & w, auto v) {
+            match_nucs.push_back(SequenceUtils::nuc_to_bool(alphabet, w));
             nuc_ids.push_back(v);
         });
 
@@ -497,10 +514,7 @@ MatchConstraint::MatchConstraint(const vec<int> & vars,
     // }
 }
 
-
-
-bool MatchConstraint::propagate_constraint(int modified,
-        SolveStack & sstack, const SolveStruc & ss) const {
+bool MatchConstraint::propagate_constraint(int modified, SolveStack & sstack, const SolveStruc & ss) const {
     int min_matched = 0;
     int max_matched = 0;
 
@@ -589,15 +603,13 @@ bool MatchConstraint::propagate_constraint(int modified,
     return can_match_tot;
 }
 
+/******************************************************************************************/
 
+// int ConstraintHandler::add_nucleotide_variable(Wildcard nuc_con) {
+//     vec<trinary> cons = SequenceUtils::nuc_to_bool(nuc_con);
 
-int ConstraintHandler::add_nucleotide_variable(int nuc_con) {
-    vec<trinary> cons = SequenceUtils::nuc_to_bool(nuc_con);
-
-    return add_variable(cons);
-}
-
-
+//     return add_variable(cons);
+// }
 
 int ConstraintHandler::add_variable(vec<trinary> allowed) {
     for (auto &a: allowed) a = a ? NUPACK_VV_UNSET : NUPACK_VV_FALSE;
@@ -636,8 +648,6 @@ int ConstraintHandler::get_n_allowed(const vec<trinary> & allowed) {
     return allowed.size() - count(allowed, NUPACK_VV_FALSE);
 }
 
-
-
 vec<int> ConstraintHandler::make_mutation(vec<int> mut_vars, vec<int> start) {
     vec<int> newstart = start;
     vec<int> ret = start;
@@ -645,8 +655,8 @@ vec<int> ConstraintHandler::make_mutation(vec<int> mut_vars, vec<int> start) {
     NUPACK_CHECK(start.size() == value_allowed.size(), "start (" + to_string(start.size()) + ") / allowed size (" + to_string(value_allowed.size()) + ")mismatch");
 
     for (auto j = 0; j < ret.size(); j++) {
-        if (value_allowed[j].size() == 4) {
-            NUPACK_CHECK(ret[j] >= 0 && ret[j] <= 3, "Invalid nucleotide code at start: " + to_string(j) + " : " + to_string(ret[j]));
+        if (value_allowed[j].size() == alphabet.length()) {
+            NUPACK_CHECK(ret[j] >= 0 && ret[j] < alphabet.length(), "Invalid nucleotide code at start: " + to_string(j) + " : " + to_string(ret[j]));
         }
     }
 
@@ -674,8 +684,8 @@ vec<int> ConstraintHandler::make_mutation(vec<int> mut_vars, vec<int> start) {
 
             // this should only be hit if there is something wrong with find_closest
             for (auto j = 0; j < ret.size(); j++) {
-                if (allowed[j].size() == 4) {
-                    NUPACK_CHECK(ret[j] >= 0 && ret[j] <= 3,
+                if (allowed[j].size() == alphabet.length()) {
+                    NUPACK_CHECK(ret[j] >= 0 && ret[j] < alphabet.length(),
                                  "Invalid nucleotide code[" + to_string(j) + "]: " + to_string(ret[j]));
                 }
             }
@@ -687,7 +697,7 @@ vec<int> ConstraintHandler::make_mutation(vec<int> mut_vars, vec<int> start) {
 
 
 
-vec<int> ConstraintHandler::get_possible_nucleotides() const {
+vec<Wildcard> ConstraintHandler::get_possible_nucleotides() const {
     SolveStruc solver;
 
     solver.value_allowed = value_allowed;
@@ -699,7 +709,7 @@ vec<int> ConstraintHandler::get_possible_nucleotides() const {
     bool success = propagate_all(root, solver);
 
     NUPACK_CHECK(success, "No nucleotides found satisfy these constraints");
-    return SequenceUtils::bool_to_nuc(solver.value_allowed);
+    return SequenceUtils::bools_to_nucs(solver.value_allowed);
 }
 
 
@@ -964,7 +974,6 @@ vec<int> ConstraintHandler::find_closest(const vec<int> & start,
     return res;
 }
 
-}
 }
 
 

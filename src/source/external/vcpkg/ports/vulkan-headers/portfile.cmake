@@ -1,14 +1,20 @@
-# header-only library
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO KhronosGroup/Vulkan-Headers
-    REF v1.2.157
-    SHA512 ab0051251ba7491b7d5720c78a187c0e75fc3056a2ad9718cbade56ea94a9ce6ac6b6d7bd8c3e998669c7f6ff5de0ea4d1b1d05df0dab6cf943c33a32d66b832
-    HEAD_REF master
+    REF "vulkan-sdk-${VERSION}"
+    SHA512 5cc23875fc4f548e6669936d290a05a09da36c2e6b73f1c904fa8b750a3bb695c7ef197ef9a0b788d1bb51021d4dd464f847fcec9909cb867618558b34fbcd6b
+    HEAD_REF main
+    PATCHES fix-headers.patch
 )
 
-# This must be vulkan as other vulkan packages expect it there.
-file(COPY "${SOURCE_PATH}/include/vulkan/" DESTINATION "${CURRENT_PACKAGES_DIR}/include/vulkan")
+set(VCPKG_BUILD_TYPE release) # header-only port
 
-# Handle copyright
-file(INSTALL "${SOURCE_PATH}/LICENSE.txt" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}" RENAME copyright)
+vcpkg_cmake_configure(SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        -DVULKAN_HEADERS_ENABLE_MODULE=OFF
+        -DVULKAN_HEADERS_ENABLE_TESTS=OFF
+)
+vcpkg_cmake_install()
+
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE.md")
+file(INSTALL "${CMAKE_CURRENT_LIST_DIR}/usage" DESTINATION "${CURRENT_PACKAGES_DIR}/share/${PORT}")

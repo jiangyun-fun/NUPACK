@@ -1,105 +1,234 @@
-/**
- * @brief Generic Block CRTP object providing compile-time functionality
- *
- * @file Block.h
- * @author Mark Fornace
- * @date 2018-05-31
- */
 #pragma once
-#include "Adapters.h"
+#include "../model/ModelVariants.h"
+#include "BasicPF.h"
+#include "CoaxialPF.h"
+#include "Tensor.h"
+#include "FastInterior.h"
 
-namespace nupack { namespace thermo {
+namespace nupack::thermo {
 
 /******************************************************************************************/
 
-template <class Contents, class Names>
-struct Record {
-    Contents contents;
-    using value_type = value_type_of<std::tuple_element_t<1, Contents>>;
+template <class T>
+struct RegionBonus : E_t {
+    native_type<T> one;
 
-    template <usize ...Is>
-    auto members_(indices_t<Is...>) {return make_members(at<Is>(contents)...);}
-    auto members() {return members_(indices_in(contents));}
-    NUPACK_EXTEND_NAMES(Names, complete);
-    bool complete() const {return at<tuple_size<Contents>-1>(contents);}
+    template <class Constants>
+    void allocate(Constants const &c, std::size_t i, std::size_t j) {one = c.one();}
+
+    void next_diagonal() const noexcept {}
+
+    bool calculate(Ignore, Ignore, Ignore, Ignore) const noexcept {return true;}
+
+    auto operator()(Index i, Index j) const noexcept {return one;}
+
+    template <class U, class Converter>
+    void assign_and_clear(RegionBonus<U> const &r, Converter const &c) {c(r.one, one);}
+
+    static auto has_backtrack() {return False();}
+
+    void clear() {}
 };
 
-NUPACK_DEFINE_TEMPLATE(is_record, Record, class, class);
+/******************************************************************************************/
+
+template <class T, class Algorithm>
+struct Block;
 
 /******************************************************************************************/
 
-// Block takes the type T and a template to fill with it
-// for T & inherit from Base<T>
-// for T inherit from Base<T> AND Base<T>::storage_type
+template <class T>
+struct Block<T, NoStacking> {
+    using value_type = T;
+    using StrandData = DangleData<native_type<T>>;
 
-template <class O, class M, usize ...Is>
-O get_subsquare(M &&m, span s, indices_t<Is...>) {return{True(), at<Is>(m).subsquare(s)...};}
+    RegionBonus<T>    E;
+    FastInterior<T> X;
+    RecursionMatrix<BasicN,  T,  SpanSecond> N;
+    RecursionMatrix<BasicM2, T,  SpanSecond> M2;
+    RecursionMatrix<BasicM3, T,  SpanSecond> M3;
+    RecursionMatrix<BasicB,  T,  SpanFirst>  B;
+    RecursionMatrix<BasicZ,  T,  SpanBoth>   Z;
+    RecursionMatrix<BasicD,  T,  SpanSecond> D;
+    RecursionMatrix<BasicYA, T,  SpanBoth>   YA;
+    RecursionMatrix<BasicYB, T,  SpanBoth>   YB;
+    RecursionMatrix<BasicMS, T,  SpanFirst>  MS;
+    RecursionMatrix<BasicM1, T,  SpanSecond> M1;
+    RecursionMatrix<BasicM,  T,  SpanSecond> M;
+    RecursionMatrix<BasicS,  T,  SpanFirst>  S;
+    RecursionMatrix<BasicQ,  T,  SpanSecond> Q;
 
+    NUPACK_REFLECT(Block, E, X, N, M2, M3, B, Z, D, YA, YB, MS, M1, M, S, Q);
+};
 
-template <class T, class Base>
-struct Block : Base::template storage_type<T>, Base, MemberComparable {
-    using value_type = decay<T>;
-    using base_type = typename Base::template storage_type<T>;
+/******************************************************************************************/
 
-private:
-    /// Indices helper function
-    static constexpr auto indices() {return member_indices<base_type>();}
+template <class T>
+struct AllOrMinDangleBlock {
+    using value_type = T;
+    using StrandData = DangleData<native_type<T>>;
 
-    template <usize ...Is>
-    auto write(span i, span j, bool complete, indices_t<Is...>) const {
-        static_assert(!is_ref<T>);
-        return std::make_tuple(at<Is>(members_of(*this)).write(i, j, complete)..., complete);
+    RegionBonus<T>    E;
+    FastInterior<T> X;
+    RecursionMatrix<BasicN,   T, SpanSecond> N;
+    RecursionMatrix<BasicM2,  T, SpanSecond> M2;
+    RecursionMatrix<BasicB,   T, SpanFirst>  B;
+    RecursionMatrix<BasicZ,   T, SpanBoth>   Z;
+    RecursionMatrix<BasicD,   T, SpanSecond> D;
+    RecursionMatrix<BasicYA,  T, SpanBoth>   YA;
+    RecursionMatrix<BasicYB,  T, SpanBoth>   YB;
+    RecursionMatrix<DangleMS, T, SpanFirst>  MS;
+    RecursionMatrix<DangleM,  T, SpanSecond> M;
+    RecursionMatrix<DangleS,  T, SpanFirst>  S;
+    RecursionMatrix<BasicQ,   T, SpanSecond> Q;
+
+    NUPACK_REFLECT(AllOrMinDangleBlock, E, X, N, M2, B, Z, D, YA, YB, MS, M, S, Q);
+};
+
+template <class T>
+struct Block<T, AllDangles> : AllOrMinDangleBlock<T> {};
+
+template <class T>
+struct Block<T, MinDangles> : AllOrMinDangleBlock<T> {};
+    
+/******************************************************************************************/
+
+template <class R, class T, class L>
+struct Table : R {
+    vec<RecursionMatrix<R, T, L>> table;
+    NUPACK_REFLECT(Table, table);
+
+    template <class Constants>
+    void allocate(Constants const &c, std::size_t i, std::size_t j) {
+        table.resize(c.model.energy_model.alphabet().length());
+        for (auto &t : table) t.allocate(c, i, j);
     }
 
-    template <class Ts, usize ...Is>
-    void read(span i, span j, Ts const &ts, indices_t<Is...>) {
-        static_assert(!is_ref<T>);
-        NUPACK_UNPACK(at<Is>(members_of(*this)).read(i, j, at<Is>(ts)));
+    template <class S, class Constants, class ...Ts>
+    bool calculate(S, Index i, Index j, Constants const &c, Ts const &...args) {
+        BaseIndex x = 0;
+        for (auto &m : table)
+            if (!m.calculate(S(), i, j, c, args..., Base(x++))) return false;
+        return true;
     }
 
-    template <class B, usize ...Is>
-    Block(False, indices_t<Is...>, B const &b) : base_type{at<Is>(members_of(b))...} {}
+    template <class I, class J>
+    decltype(auto) operator()(I const &i, J const &j, Base x) const {return table[+x](i, j);} 
 
-    template <class B, usize ...Is>
-    Block(False, indices_t<Is...>, B &&b) : base_type{std::move(at<Is>(members_of(b)))...} {}
+    void next_diagonal() const noexcept {}
 
-public:
-    template <class U, class ...Ts, NUPACK_IF(!is_like<U, Block, True, False>)>
-    Block(U &&u, Ts &&...ts) : base_type{Base::template storage<T>(fw<U>(u), fw<Ts>(ts)...)} {}
+    template <class U, class F>
+    void assign_and_clear(Table<R, U, L> &&u, F &&f)  {table.resize(u.table.size()); zip(table, u.table, [&](auto &x, auto &y) {x.assign_and_clear(std::move(y), f);});}
+
+    static constexpr auto has_backtrack() {return False();}
+};
+
+/******************************************************************************************/
+
+template <class R, class T, class L>
+struct Table2 : Table<R, T, L> {
+    BaseIndex n;
+
+    template <class Constants>
+    void allocate(Constants const &c, std::size_t i, std::size_t j) {
+        n = c.model.energy_model.alphabet().length();
+        this->table.resize(n * n);
+        for (auto &t : this->table) t.allocate(c, i, j);
+    }
+
+    template <class S, class Constants>
+    bool calculate(S, Index i, Index j, Constants const &c) {
+        auto m = this->table.begin();
+        for (auto x : range(n)) for (auto y : range(n)) {
+            if (!m->calculate(S(), i, j, c, Base(x), Base(y))) return false;
+            ++m;
+        }
+        return true;
+    }
+
+    template <class I, class J>
+    decltype(auto) operator()(I const &i, J const &j, Base x, Base y) const {return this->table[+x * n + +y](i, j);} 
+};
+
+/******************************************************************************************/
+
+template <class T>
+struct Toggle {
+    std::pair<T, T> ts;
+
+    NUPACK_REFLECT(Toggle, ts);
+
+    template <class Constants>
+    void allocate(Constants const &c, std::size_t i, std::size_t j) {
+        for_each(ts, [&](auto &m) {m.allocate(c, i, j);});
+    }
+
+    template <class S, class Constants, class ...Ts>
+    bool calculate(S, Index i, Index j, Constants const &c, Ts const &...args) {
+        return std::get<0>(ts).calculate(S(), i, j, c, args..., d0)
+            && std::get<1>(ts).calculate(S(), i, j, c, args..., d1);
+    }
+
+    template <class I, class J, class N, class ...Ts>
+    decltype(auto) operator()(I const &i, J const &j, N, Ts &&...ts) const {return std::get<N::value>(this->ts)(i, j, std::forward<Ts>(ts)...);} 
+    
+    template <class I, class J>
+    decltype(auto) operator()(I const &i, J const &j) const {return std::get<0>(this->ts)(i, j);} 
+
+    decltype(auto) corner(bool i, bool j) const {return std::get<0>(ts).corner(i, j);}
+
+    void next_diagonal() const noexcept {}
+    static constexpr auto has_backtrack() {return False();}
 
     template <class ...Ts>
-    Block(True, Ts &&...ts) : base_type{fw<Ts>(ts)...} {}
-
-    template <class T2, class B2>
-    Block(Block<T2, B2> const &b) : Block(False(), indices(), b) {static_assert(!is_same<T, T2>, "");}
-
-    template <class T2, class B2>
-    Block(Block<T2, B2> &&b) : Block(False(), indices(), std::move(b)) {static_assert(!is_same<T, T2>, "");}
-
-    template <class Record>
-    void read(span i, span j, Record const &r) {read(i, j, r.contents, indices());}
-
-    auto write(span i, span j, bool complete) const {
-        using base = typename Base::template storage_type<value_type>;
-        return Record<decltype(write(i, j, complete, indices())), base>{write(i, j, complete, indices())};
-    }
-
-    /// Get square submatrix for each member
-    auto subsquare(span s) const {return get_subsquare<Block<value_type const &, Base>>(members_of(*this), s, indices());}
-    auto subsquare(span s) {return get_subsquare<Block<value_type &, Base>>(members_of(*this), s, indices());}
-    /// Return length of the matrix - I lazily use 1 not 0 because X doesn't have size
-    auto size() const {return len(at<1>(members_of(*this)));}
-    /// Return highest level result in this block
-    auto result() const {return value_of(base_type::Q(0, size() - 1));}
-
-    void copy_square(span i, span j) {
-        for_each(members_of(*this), [=](auto &M) {M.copy_square(i, j);});
-    }
+    decltype(auto) addressed(Ts &&...args) const {return std::get<0>(ts).addressed(std::forward<Ts>(args)...);}
 };
-
-NUPACK_DEFINE_TEMPLATE(is_block, Block, class, class);
-
 
 /******************************************************************************************/
 
-}}
+template <class R, class T, class L>
+struct Toggle2 : R, Toggle<Toggle<RecursionMatrix<R, T, L>>> {};
+
+template <class R, class T, class L>
+struct Toggle1 : R, Toggle<RecursionMatrix<R, T, L>> {};
+
+template <class R, class T, class L>
+struct ToggleTable : R, Toggle<Table<R, T, L>> {};
+
+/******************************************************************************************/
+
+template <class T>
+struct Block<T, Stacking> : MemberComparable {
+    using value_type = T;
+    using StrandData = CoaxialRows<native_type<T>>;
+
+    RegionBonus<T>    E;
+    FastInterior<T> X;
+    RecursionMatrix<CoaxialN,     T, SpanBoth>    N;
+    RecursionMatrix<CoaxialM2,  T, SpanSecond>  M2;
+    RecursionMatrix<CoaxialB,   T, SpanBoth>    B;
+    RecursionMatrix<BasicZ,     T, SpanBoth>    Z;
+    RecursionMatrix<BasicD,     T, SpanBoth>    D;
+    RecursionMatrix<BasicYA,    T, SpanBoth>    YA;
+    RecursionMatrix<BasicYB,    T, SpanBoth>    YB;
+    RecursionMatrix<CoaxialMD,  T, SpanSecond>  MD;
+    RecursionMatrix<CoaxialMC,  T, SpanSecond>  MC;
+    RecursionMatrix<CoaxialMCS, T, SpanFirst>   MCS;
+    RecursionMatrix<CoaxialMS,  T, SpanFirst>   MS; // MS == CMS + MCS; CMS never referenced alone
+    RecursionMatrix<CoaxialCD,  T, SpanSecond>  CD;
+    RecursionMatrix<CoaxialS,   T, SpanFirst>   S;
+    RecursionMatrix<CoaxialM,   T, SpanBoth>    M;
+    RecursionMatrix<CoaxialQ,   T, SpanBoth>    Q;
+    NUPACK_REFLECT(Block, E, X, N, M2, B, Z, D, YA, YB, MD, MC, MCS, MS, CD, S, M, Q);
+};
+
+/******************************************************************************************/
+
+template <class Block, class Constants>
+void allocate_block(Block &b, Constants const &c) {
+    for_each(members_of(b), [&](auto &m) {m.allocate(c, c.lsize(), c.rsize());});
+}
+
+
+
+}

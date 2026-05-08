@@ -9,7 +9,10 @@
 #include "Weights.h"
 
 namespace nupack {
-namespace newdesign {
+namespace design {
+
+Logs get_logs(DesignParameters const &);
+EngineObserver get_thermo_log(DesignParameters const &);
 
 struct Designer {
     Design design;
@@ -31,7 +34,7 @@ struct Designer {
 
     std::set<Sequence> known_bads;
 
-    std::function<void(Designer &, bool)> checkpoint {NoOp()}; // checks if should checkpoint and does
+    std::function<bool(Designer &, bool)> checkpoint {AlwaysFalse()}; // checks if should checkpoint and does it. return whether design should finish.
 
     Designer() = default;
     Designer(Design d, vec<Objective> objs, Weights weights, DesignParameters params={}) :
@@ -39,44 +42,44 @@ struct Designer {
             parameters(std::move(params)),
             weights(std::move(weights)),
             Psi(design.complexes, parameters.f_passive * parameters.f_stop),
-            logs(parameters.log_file_paths()),
-            obs{parameters.slowdown, &logs} {}
-
+            logs(get_logs(parameters)),
+            obs(get_thermo_log(parameters)) {}
+            
     NUPACK_REFLECT(Designer, design, objectives, parameters, Psi, max_depth, weights, stats, best, known_bads)
 
-    void initialize(bool decompose=true);
-    void subset_decompose(vec<uint> subset, uint depth=0);
+    void initialize(Env const &, bool decompose=true);
+    void subset_decompose(Env const &, vec<uint> subset, uint depth=0);
 
-    void redecompose_active(Local const &env, uint depth);
-    bool redecompose(uint depth, Sequence const &sequence);
-    void refocus(Local const &env, Sequence const &sequence);
+    void redecompose_active(Env const &env, uint depth);
+    bool redecompose(Env const &env, uint depth, Sequence const &sequence);
+    void refocus(Env const &env, Sequence const &sequence);
 
 
     /* alternate stuff */
-    // Result alternate_optimize_tubes(Local const &env);
-    // bool length_extrapolation_refocus(Local const &env);
-    // bool sum_pf_refocus(Local const &env);
+    // Result alternate_optimize_tubes(Env const &env);
+    // bool length_extrapolation_refocus(Env const &env);
+    // bool sum_pf_refocus(Env const &env);
     /* end stuff */
 
 
-    Result optimize_tubes(Local const &env);
-    Result optimize_tubes_impl(Local const &env);
-    Result optimize_forest(Local const &env, Sequence seq);
-    Result optimize_leaves(Local const &env, Sequence seq);
-    Result mutate_leaves(Local const &env, Sequence seq);
+    Result optimize_tubes(Env const &env);
+    Result optimize_tubes_impl(Env const &env);
+    Result optimize_forest(Env const &env, Sequence seq);
+    Result optimize_leaves(Env const &env, Sequence seq);
+    Result mutate_leaves(Env const &env, Sequence seq);
 
     /* multiobjective */
-    Result evaluate_objectives(Local const &env, uint depth, EnsemblePartition const &part, Weights const &weights);
-    Result reevaluate_objectives(Local const &env, Result const &res, uint depth, EnsemblePartition const &part, Weights const &weights);
+    Result evaluate_objectives(Env const &env, uint depth, EnsemblePartition const &part, Weights const &weights);
+    Result reevaluate_objectives(Env const &env, Result const &res, uint depth, EnsemblePartition const &part, Weights const &weights);
 
-    Sequence best_sequence(Local const &env);
+    Sequence best_sequence(Env const &env);
 
     bool improvement_slowing(vec<uint> const &x, vec<real> const &y);
 
     auto time_elapsed() const { return stats.design_time + timer.elapsed(); }
 
     bool success() const {return best.full.weighted_total() <= parameters.f_stop;}
-    void time_analysis(Local const &env);
+    void time_analysis(Env const &env);
 
     static constexpr auto repr_names() {return make_names("design", "parameters", "weights", "Psi", "stats", "timer", "best", "max_depth", "known_bads");}
 
@@ -92,8 +95,6 @@ struct Designer {
         this->Psi = std::move(Psi);
         this->stats = std::move(stats);
         this->timer = std::move(timer);
-        this->logs = Logs(parameters.log_file_paths());
-        this->obs = {parameters.slowdown, &logs};
         this->best = std::move(best);
         this->max_depth = std::move(max_depth);
         this->known_bads = std::move(known_bads);

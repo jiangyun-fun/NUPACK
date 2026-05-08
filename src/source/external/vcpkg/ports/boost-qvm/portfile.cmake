@@ -3,10 +3,13 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO boostorg/qvm
-    REF boost-1.75.0
-    SHA512 7bba9ea21bc86699a54d571c45bd994353ad3207ac7696a111c5e8f08e9de03b6344236b8ce11a19d10696a682fdbd8cc5c4bca84c2337f4f009b92c82e77c81
+    REF boost-${VERSION}
+    SHA512 69c4bfcf893430b9f6c8fce7056b13b6e2fc21d797c7b68d9185ca0261f4e3d9913a4b93a3dafc0e47125f760ee0b8c901573b061b81c9265a11aa864f6328d1
     HEAD_REF master
 )
 
-include(${CURRENT_INSTALLED_DIR}/share/boost-vcpkg-helpers/boost-modular-headers.cmake)
-boost_modular_headers(SOURCE_PATH ${SOURCE_PATH})
+set(FEATURE_OPTIONS "")
+boost_configure_and_install(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS ${FEATURE_OPTIONS}
+)

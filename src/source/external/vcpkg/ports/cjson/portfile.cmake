@@ -1,14 +1,15 @@
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO DaveGamble/cJSON
-    REF 95368da1a13c1ced5507bb5b0a457729af34837c
-    SHA512 e50fb7857573fac39bc9659004bd71483156677b4b1c7dd801470469162d1af2b1e3803fb4f1291b2b5defefb005ddd78b0efb01965626eecc00bc78b5f98c72
+    REF "v${VERSION}"
+    SHA512 2accb507c6b97222eb5f0232c015b356cf6d248d1247049928731aa8e897378245e62395c232b1ec57d28d1e53ac72c849be85e59c33616a382d40473649f66b
     HEAD_REF master
 )
 
 vcpkg_check_features(
     OUT_FEATURE_OPTIONS FEATURE_OPTIONS
-    utils ENABLE_CJSON_UTILS
+    FEATURES
+        utils ENABLE_CJSON_UTILS
 )
 
 if(CMAKE_HOST_WIN32)
@@ -19,9 +20,8 @@ else()
     set(DENABLE_HIDDEN_SYMBOLS OFF)
 endif()
 
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
     OPTIONS
         -DBUILD_SHARED_AND_STATIC_LIBS=OFF
         -DCJSON_OVERRIDE_BUILD_SHARED_LIBS=OFF
@@ -29,22 +29,24 @@ vcpkg_configure_cmake(
         -DENABLE_HIDDEN_SYMBOLS=${DENABLE_HIDDEN_SYMBOLS}
         -DENABLE_TARGET_EXPORT=ON # Export CMake config files
         -DENABLE_CJSON_TEST=OFF
+        -DENABLE_CUSTOM_COMPILER_FLAGS=OFF
         -DENABLE_FUZZING=OFF
+	-DCMAKE_POLICY_DEFAULT_CMP0057=NEW
         ${FEATURE_OPTIONS}
 )
 
-vcpkg_install_cmake()
+vcpkg_cmake_install()
 
 vcpkg_copy_pdbs()
 
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/cJSON)
+vcpkg_cmake_config_fixup(CONFIG_PATH lib/cmake/cJSON)
 
 file(REMOVE_RECURSE
-    ${CURRENT_PACKAGES_DIR}/debug/include
-    ${CURRENT_PACKAGES_DIR}/debug/share
+    "${CURRENT_PACKAGES_DIR}/debug/include"
+    "${CURRENT_PACKAGES_DIR}/debug/share"
 )
 
-file(READ ${CURRENT_PACKAGES_DIR}/include/cjson/cJSON.h _contents)
+file(READ "${CURRENT_PACKAGES_DIR}/include/cjson/cJSON.h" _contents)
 if(ENABLE_PUBLIC_SYMBOLS)
     string(REPLACE "defined(CJSON_HIDE_SYMBOLS)" "0 /* defined(CJSON_HIDE_SYMBOLS) */" _contents "${_contents}")
     string(REPLACE "defined(CJSON_EXPORT_SYMBOLS)" "0 /* defined(CJSON_EXPORT_SYMBOLS) */" _contents "${_contents}")
@@ -52,7 +54,9 @@ if(ENABLE_PUBLIC_SYMBOLS)
 else()
     string(REPLACE "defined(CJSON_HIDE_SYMBOLS)" "1 /* defined(CJSON_HIDE_SYMBOLS) */" _contents "${_contents}")
 endif()
-file(WRITE ${CURRENT_PACKAGES_DIR}/include/cjson/cJSON.h "${_contents}")
+file(WRITE "${CURRENT_PACKAGES_DIR}/include/cjson/cJSON.h" "${_contents}")
 
 # Handle copyright
-configure_file(${SOURCE_PATH}/LICENSE ${CURRENT_PACKAGES_DIR}/share/${PORT}/copyright COPYONLY)
+configure_file("${SOURCE_PATH}/LICENSE" "${CURRENT_PACKAGES_DIR}/share/${PORT}/copyright" COPYONLY)
+
+vcpkg_fixup_pkgconfig()

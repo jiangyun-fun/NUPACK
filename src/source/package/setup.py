@@ -33,6 +33,7 @@ setup(
     distclass=BinaryDistribution,
     cmdclass={'install': InstallPlatlib},
     install_requires=[
+        'pyyaml>=5.0.0',
         'scipy>=1.0',
         'numpy>=1.17',
         'pandas>=1.1.0',

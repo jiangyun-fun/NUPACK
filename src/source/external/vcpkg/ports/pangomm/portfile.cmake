@@ -1,65 +1,29 @@
-vcpkg_fail_port_install(ON_ARCH "arm" "arm64")
+string(REGEX REPLACE "\\.[0-9]+$" "" MAJOR_MINOR ${VERSION})
 
+# Keep distfile, don't use GitLab!
 vcpkg_download_distfile(ARCHIVE
-    URLS "https://ftp.gnome.org/pub/GNOME/sources/pangomm/2.40/pangomm-2.40.1.tar.xz"
-    FILENAME "pangomm-2.40.1.tar.xz"
-    SHA512 bed19800b76e69cc51abeb5997bdc2f687f261ebcbe36aeee51f1fbf5010a46f4b9469033c34a912502001d9985135fd5c7f7574d3de8ba33cc5832520c6aa6f
+    URLS "https://ftp.gnome.org/pub/GNOME/sources/pangomm/${MAJOR_MINOR}/pangomm-${VERSION}.tar.xz"
+    FILENAME "pangomm-${VERSION}.tar.xz"
+    SHA512 3000126cdf538f43c131a186999fd39d81ec471f5770d8dfd721ff84cb3f5ad44d17cdcc732299ee9d9f34f2dd1279959cf6e1b863c3a0afc32e49b453db782b
 )
 
-vcpkg_extract_source_archive_ex(
-    OUT_SOURCE_PATH SOURCE_PATH
+vcpkg_extract_source_archive(
+    SOURCE_PATH
     ARCHIVE ${ARCHIVE}
-    PATCHES
-        fix_properties.patch
-        fix_charset.patch
 )
 
-file(COPY ${CMAKE_CURRENT_LIST_DIR}/msvc_recommended_pragmas.h DESTINATION ${SOURCE_PATH}/MSVC_Net2013)
-
-set(VS_PLATFORM ${VCPKG_TARGET_ARCHITECTURE})
-if(${VCPKG_TARGET_ARCHITECTURE} STREQUAL x86)
-    set(VS_PLATFORM "Win32")
-endif()
-
-vcpkg_build_msbuild(
-    PROJECT_PATH ${SOURCE_PATH}/MSVC_Net2013/pangomm.sln
-    TARGET pangomm
-    PLATFORM ${VS_PLATFORM}
-    USE_VCPKG_INTEGRATION
+vcpkg_configure_meson(
+    SOURCE_PATH "${SOURCE_PATH}"
+    OPTIONS
+        -Dmsvc14x-parallel-installable=false
+        -Dbuild-documentation=false
+    ADDITIONAL_BINARIES
+        glib-genmarshal='${CURRENT_HOST_INSTALLED_DIR}/tools/glib/glib-genmarshal'
+        glib-mkenums='${CURRENT_HOST_INSTALLED_DIR}/tools/glib/glib-mkenums'
 )
 
-# Handle headers
-file(COPY ${SOURCE_PATH}/MSVC_Net2013/pangomm/pangommconfig.h DESTINATION ${CURRENT_PACKAGES_DIR}/include)
-file(COPY ${SOURCE_PATH}/pango/pangomm.h DESTINATION ${CURRENT_PACKAGES_DIR}/include)
-file(
-    COPY
-    ${SOURCE_PATH}/pango/pangomm
-    DESTINATION ${CURRENT_PACKAGES_DIR}/include
-    FILES_MATCHING PATTERN *.h
-)
-
-# Handle libraries
-file(
-    COPY
-    ${SOURCE_PATH}/MSVC_Net2013/Release/${VS_PLATFORM}/bin/pangomm.dll
-    DESTINATION ${CURRENT_PACKAGES_DIR}/bin
-)
-file(
-    COPY
-    ${SOURCE_PATH}/MSVC_Net2013/Release/${VS_PLATFORM}/bin/pangomm.lib
-    DESTINATION ${CURRENT_PACKAGES_DIR}/lib
-)
-file(
-    COPY
-    ${SOURCE_PATH}/MSVC_Net2013/Debug/${VS_PLATFORM}/bin/pangomm.dll
-    DESTINATION ${CURRENT_PACKAGES_DIR}/debug/bin
-)
-file(
-    COPY
-    ${SOURCE_PATH}/MSVC_Net2013/Debug/${VS_PLATFORM}/bin/pangomm.lib
-    DESTINATION ${CURRENT_PACKAGES_DIR}/debug/lib
-)
-
+vcpkg_install_meson()
+vcpkg_fixup_pkgconfig()
 vcpkg_copy_pdbs()
 
-file(INSTALL ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/COPYING")

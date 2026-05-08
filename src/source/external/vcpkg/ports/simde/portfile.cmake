@@ -2,13 +2,12 @@
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
-    REPO nemequ/simde
-    REF f68981de04072012dcc888716dedae2a345d0e45 #v0.7.0
-    SHA512 63a00e8a3e0adbd3192f7416f4c163b8b671943042e4f64a91e6865d434a0d5949e97bca1e40d854b9868911ff8d93ac845ac25baa763554447d6be7cdfb084e
+    REPO simd-everywhere/simde
+    REF "v${VERSION}"
+    SHA512 4e42d7140c0afae507773527c6c0c07e6f0cdad59a1d42ebcf4bd223fc9f71e91a2e3db7746aca3c0c5ad2a13333c2322ce1e384c7d699ddfe33bed6f107aec5
     HEAD_REF master
 )
 
-file(COPY ${SOURCE_PATH}/simde DESTINATION ${CURRENT_PACKAGES_DIR}/include)
+file(COPY "${SOURCE_PATH}/simde" DESTINATION "${CURRENT_PACKAGES_DIR}/include")
 
-# Handle copyright
-configure_file(${SOURCE_PATH}/COPYING ${CURRENT_PACKAGES_DIR}/share/${PORT}/copyright COPYONLY)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/COPYING")

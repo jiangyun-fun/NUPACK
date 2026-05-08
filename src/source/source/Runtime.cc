@@ -7,6 +7,7 @@
  */
 #include <nupack/common/Runtime.h>
 #include <nupack/common/Error.h>
+#include <nupack/execution/Local.h>
 
 #include <csignal>
 #include <atomic>
@@ -89,9 +90,16 @@ string get_backtrace(std::size_t n) {
     return ss.str();
 }
 
-Error::Error(std::string s) : std::runtime_error(std::move(s)) {
-    if (false && DebugInfo) print_backtrace(std::cerr);
+string make_error_message(Error::Function const &f) {
+    std::stringstream ss;
+    ss << "NUPACK error: ";
+    f(ss);
+    ss << '\n';
+    print_backtrace(ss, 10);
+    return ss.str();
 }
+
+Error::Error(Error::Function const &f) : std::runtime_error(make_error_message(f)) {}
 
 /******************************************************************************************/
 
@@ -116,12 +124,12 @@ string SignalError::type() const {
 
 char const * SignalError::make_name(int i) {
     switch(i) {
-        case(SIGINT):  return "SIGINT  - Terminal interrupt signal";
-        case(SIGILL):  return "SIGILL  - Illegal instruction signal";
-        case(SIGFPE):  return "SIGFPE  - Floating point error signal";
-        case(SIGSEGV): return "SIGSEGV - Segmentation violation signal";
-        case(SIGTERM): return "SIGTERM - Termination request signal";
-        case(SIGABRT): return "SIGABRT - Abort (abnormal termination) signal";
+        case(SIGINT):  return "SIGINT: Terminal interrupt signal";
+        case(SIGILL):  return "SIGILL: Illegal instruction signal";
+        case(SIGFPE):  return "SIGFPE: Floating point error signal";
+        case(SIGSEGV): return "SIGSEGV: Segmentation violation signal";
+        case(SIGTERM): return "SIGTERM: Termination request signal";
+        case(SIGABRT): return "SIGABRT: Abort (abnormal termination) signal";
         default: return "Unknown signal";
     }
 };
@@ -132,18 +140,32 @@ struct RuntimeContents {
 #   ifndef _WIN32
         struct sigaction handler;
 #   endif
-    backward::SignalHandling sh;
+    backward::SignalHandling backtrace_handler;
     std::vector<int> signals;
 };
 std::sig_atomic_t StaticSignal = 0;
 
-void throw_if_signal() {
+int fetch_signal() noexcept {
     int i = 0;
     // Check signal set on this thread
-    if (ThreadLocalSignal) i = ThreadLocalSignal->exchange(0, std::memory_order_relaxed);
+    if (ThreadLocalSignal) i = ThreadLocalSignal->load(std::memory_order_relaxed);
     // Check system level signal
-    if (!i) {i = StaticSignal; StaticSignal = 0;}
-    if (i) throw SignalError(i);
+    if (!i) i = StaticSignal;
+    return i;
+}
+
+int exchange_signal(int value) noexcept {
+    int i = 0;
+    // Check signal set on this thread
+    if (ThreadLocalSignal) i = ThreadLocalSignal->exchange(value, std::memory_order_relaxed);
+    // Check system level signal
+    if (!i) i = StaticSignal;
+    StaticSignal = value;
+    return i;
+}
+
+void throw_if_signal() {
+    if (auto i = exchange_signal(0)) throw SignalError(i);
 }
 
 extern "C" void set_nupack_static_signal(int i) {StaticSignal = i;}
@@ -153,7 +175,7 @@ void set_static_signal(int code) {set_nupack_static_signal(code);}
 SignalRuntime::SignalRuntime(int const *b, int const *e) : contents(std::make_shared<RuntimeContents>()) {
     contents->signals.assign(b, e);
 
-    if (!contents->sh.loaded()) std::cout << "C++ backtrace handler not loaded" << std::endl;
+    if (!contents->backtrace_handler.loaded()) std::cout << "C++ backtrace handler not loaded" << std::endl;
     std::lock_guard<std::mutex> lock(mut);
     for (auto i : contents->signals) {
 #   ifdef _WIN32

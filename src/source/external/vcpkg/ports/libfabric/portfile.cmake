@@ -1,39 +1,36 @@
-vcpkg_fail_port_install(ON_TARGET "Linux" "OSX" "UWP" ON_ARCH "x86")
-
-vcpkg_check_linkage(ONLY_DYNAMIC_LIBRARY)
+if(VCPKG_TARGET_IS_WINDOWS)
+    vcpkg_check_linkage(ONLY_DYNAMIC_LIBRARY)
+endif()
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO ofiwg/libfabric
-    REF v1.8.1
+    REF v${VERSION}
+    SHA512 8242d1eec22a066b65cb99f5b96da44ce19c1dcb3db15238495b28147e8bcee70f6c0eaf5f72e1dc9e004809114a5f96ee696b9e5fc8bd9c07177b9916e35d05
     HEAD_REF master
-    SHA512 7c3879af3ad7dbda9e9bf9f43a2d213a8e41d50212008f29e912d3d0946efc381e6833c08206106e9f486c37eaef16103198247b328297209ef80dc66ca1b6e5
-    PATCHES
-      add_additional_includes.patch
 )
 
-set(LIBFABRIC_RELEASE_CONFIGURATION "Release-v141")
-set(LIBFABRIC_DEBUG_CONFIGURATION "Debug-v141")
+if(VCPKG_TARGET_IS_WINDOWS)
+    vcpkg_msbuild_install(
+        SOURCE_PATH "${SOURCE_PATH}"
+        PROJECT_SUBPATH libfabric.vcxproj
+        RELEASE_CONFIGURATION Release-v142
+        DEBUG_CONFIGURATION Debug-v142
+        OPTIONS
+            "/p:SolutionDir=${SOURCE_PATH}"
+    )
+    file(COPY "${SOURCE_PATH}/include/" DESTINATION "${CURRENT_PACKAGES_DIR}/include/libfabric")
 
-vcpkg_install_msbuild(
-    SOURCE_PATH ${SOURCE_PATH}
-    PROJECT_SUBPATH libfabric.vcxproj
-    INCLUDES_SUBPATH include
-    LICENSE_SUBPATH COPYING
-    PLATFORM "x64"
-    RELEASE_CONFIGURATION ${LIBFABRIC_RELEASE_CONFIGURATION}
-    DEBUG_CONFIGURATION ${LIBFABRIC_RELEASE_CONFIGURATION}
-    USE_VCPKG_INTEGRATION
-    ALLOW_ROOT_INCLUDES
-    OPTIONS
-      /p:SolutionDir=${SOURCE_PATH}
-      /p:AdditionalIncludeDirectories="${CURRENT_INSTALLED_DIR}/include"
-)
+else()
+    vcpkg_configure_make(
+        SOURCE_PATH "${SOURCE_PATH}"
+        AUTOCONFIG
+        OPTIONS
+            --with-uring=no
+    )
+    vcpkg_install_make()
+    vcpkg_fixup_pkgconfig()
+    file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share")
+endif()
 
-#Move includes under subdirectory to avoid colisions with other libraries
-file(RENAME ${CURRENT_PACKAGES_DIR}/include ${CURRENT_PACKAGES_DIR}/includetemp)
-file(MAKE_DIRECTORY ${CURRENT_PACKAGES_DIR}/include)
-file(RENAME ${CURRENT_PACKAGES_DIR}/includetemp ${CURRENT_PACKAGES_DIR}/include/libfabric)
-
-# Handle copyright
-file(INSTALL ${SOURCE_PATH}/COPYING DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/COPYING")

@@ -1,14 +1,11 @@
 /**
  * @brief Backtracking through dynamic programs
- *
- * @file Backtrack.h
- * @author Nick Porubsky
- * @date 2018-05-31
  */
 #pragma once
 #include "CachedModel.h"
 #include "../types/Sequence.h"
 #include "../types/PairList.h"
+#include "../types/Triangle.h"
 #include "../common/Random.h"
 #include "../iteration/Search.h"
 
@@ -20,149 +17,76 @@ namespace nupack::thermo {
 
 /******************************************************************************************/
 
-/** A priority queue using an underlying map. It expects the value type, V, to
-  be Iterable such that if a key exists (by comparison function C), the push
-  function will append incoming value to the values in the key already in the
-  priority queue.
-*/
-template <class K, class V, class C=void>
-struct Priority_Queue : Iterable<Priority_Queue<K, V, C>> {
-    std::map<K, V, C> data;
-    using value_type = value_type_of<decltype(data)>;
-
-    void push(K const &key, V const &val) {
-        auto it = data.find(key);
-        if (it == end_of(data)) data.emplace(key, val);
-        else it->second.insert(end_of(it->second), begin_of(val), end_of(val));
-    }
-
-    value_type pop() {
-        auto el = front(data);
-        data.erase(begin_of(data));
-        return el;
-    }
-
-    value_type const & top() const {return front(data);}
-
-    auto const & iter() const {return data;}
-    bool empty() const {return data.empty();}
-    void clear() {data.clear();}
-    usize size() const {return data.size();}
-};
-
-
-template <class K, class C>
-struct Priority_Queue<K, C, void> : Iterable<Priority_Queue<K, C, void>> {
-    std::set<K, C> data;
-    using value_type = value_type_of<decltype(data)>;
-
-    void push(K const &key) {
-        auto it = data.find(key);
-        if (it == end_of(data)) data.insert(key);
-        // else {NUPACK_ERROR("can't push to queue."); }
-    }
-
-    value_type pop() {
-        auto el = front(data);
-        data.erase(begin_of(data));
-        return el;
-    }
-
-    value_type const & top() const {return front(data);}
-
-    auto const & iter() const {return data;}
-    bool empty() const {return data.empty();}
-    void clear() {data.clear();}
-    usize size() const {return data.size();}
-};
-
-/******************************************************************************************/
-
-template <class K, class ...Ignore>
-struct Stack : Iterable<Stack<K, Ignore...>> {
-    std::vector<K> data;
-    using value_type = value_type_of<decltype(data)>;
-
-    void push(K const &key) {
-        data.push_back(key);
-    }
-
-    value_type pop() {
-        auto el = top();
-        data.pop_back();
-        return el;
-    }
-
-    value_type const & top() const {return back(data);}
-
-    auto const & iter() const {return data;}
-    bool empty() const {return data.empty();}
-    void clear() {data.clear();}
-    usize size() const {return data.size();}
-};
-
-/******************************************************************************************/
-struct Priority_Queue_Condition {
-    template <class S, class Q>
-    bool operator()(S const &s, Q const &q) {
-        return !q.empty() && s == q.top().segments.top();
-    };
-};
-
-struct Stack_Condition {
-    template <class S, class Q>
-    constexpr bool operator()(S const &, Q const &) {return false;};
-};
-
-template <class ...Ts>
-struct Outer_Priority_Queue : public Priority_Queue<Ts...>, public Priority_Queue_Condition {};
-
-template <class ...Ts>
-struct Outer_Stack : public Stack<Ts...>, public Stack_Condition {};
-/******************************************************************************************/
-
 /** Represents an element of a recursion matrix that has been sampled. Includes
   matrix type (e.g. "Q", "MS", etc.) priority is determined automatically
   during lookup from the structure of the Block object, and thus Segment works
   without modification for both basic and coaxial matrix sets.
 */
-struct Segment {
-    usize i, j;
-    string type;
-    int priority;
-    NUPACK_REFLECT(Segment, i, j, type, priority);
+struct Segment : MemberComparable, WeaklyOrdered {
+    uint i, j;
+    Priority priority;
+    NUPACK_REFLECT(Segment, i, j, priority)
 
-    // left base, i, used as an arbitrary tie breaker when comparing segments of the same type and length
-    struct Compare {
-        bool operator()(Segment const & a, Segment const & b) const {
-            return std::make_tuple(-int(len(a)), a.priority, a.i) < std::make_tuple(-int(len(b)), b.priority, b.i);
-        }
-    };
-
-    bool operator==(Segment const & o) const {
-        return std::tie(i, j, type) == std::tie(o.i, o.j, o.type);
-    }
+    constexpr Segment(uint i, uint j, Priority p) : i(i), j(j), priority(p) {}
 
     friend std::ostream & operator<<(std::ostream &os, Segment const &t) {
-        return os << t.type << ": " << t.i << ", " << t.j << ", priority: " << t.priority;
+        return os << recursion_name(t.priority) << '(' << t.i << ", " << t.j << ')';
     }
 
-    usize size() const {return j - i;}
-
+    // Bigger elements have a longer range [i:j] and a higher priority
+    // Include i as a tie-breaker in comparison
+    bool operator<(Segment const &b) const noexcept {
+        return std::forward_as_tuple(b.i + j, priority, b.i) < std::forward_as_tuple(i + b.j, b.priority, i);
+    }
 };
 
 /******************************************************************************************/
 
-/** Looks up the matrix entry (i,j) in matrix of type "type" in block.
-*/
-template <class Block>
-auto get_element(Block const &block, int i, int j, string type) {
-    auto const mems = members_of(block);
-    typename decay<decltype(at_c(mems, size_constant<1>()))>::value_type el {};
-    for_each_index(Block::backtracks(), [&](auto I) {
-        if (at_c(names_of(block), I) == type) el = value_of(at_c(mems, I)(i, j));
+struct StrandSegment : Segment, MemberOrdered {
+    NUPACK_EXTEND_REFLECT(StrandSegment, Segment, left, right);
+    uint left, right;
+
+    constexpr StrandSegment(uint l, uint r, Segment const &s) : Segment(s), left(l), right(r) {}
+
+    template <class T>
+    StrandSegment(T const &t, uint l, uint r) : Segment(t.i, t.j, t.recursion.priority()), left(l), right(r) {
+        NUPACK_QUICK_REQUIRE(t.i, >=, 0);
+        NUPACK_QUICK_REQUIRE(t.j, >=, 0);
+        if constexpr(traits::has_recursion_strand<T>) {
+            if (t.recursion.strand >= 0) {
+                NUPACK_QUICK_REQUIRE(l + t.recursion.strand, <=, r, l, r, t.recursion.strand);
+                right = l + t.recursion.strand;
+            } else {
+                NUPACK_QUICK_REQUIRE(l + -t.recursion.strand, <=, r, l, r, t.recursion.strand);
+                left = l + -t.recursion.strand;
+            }
+        }
+    }
+
+    friend std::ostream & operator<<(std::ostream &os, StrandSegment const &t) {
+        return os << recursion_name(t.priority) << '[' << t.left << ", " << t.right << "](" << t.i << ", " << t.j << ')';
+    }
+
+    // Compare this way so strands with a larger span and lower start are considered bigger
+    bool operator<(StrandSegment const &b) const noexcept {
+        return std::forward_as_tuple(right + b.left, b.left, static_cast<Segment const &>(*this))
+             < std::forward_as_tuple(b.right + left, left, static_cast<Segment const &>(b));
+    }
+};
+
+/******************************************************************************************/
+
+template <class B, class F>
+auto backtrack(B const &block, Segment const &s, F &&f) {
+    bool done = false;
+    for_each(members_of(block), [&](auto const &m) {
+        if constexpr(has_backtrack<decltype(m)>) {
+            if (!done && m.priority() == s.priority) {f(m, m(s.i, s.j)); done = true;}
+        }
     });
-    return el;
+    NUPACK_ASSERT(done, "Could not find matching recursion", s);
 }
+
+/******************************************************************************************/
 
 }

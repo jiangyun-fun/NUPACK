@@ -21,7 +21,7 @@ struct Move;
  * indices only.
  *
  * @tparam Energy=Energy Energy type
- * @tparam Joiner=ProductJoiner Controls calculation of complex join moves between exterior loops
+ * @tparam Joiner=ProductLoopJoiner Controls calculation of complex join moves between exterior loops
  * @tparam Move_Gen=FullMoveGen<Energy> Controls calculation of intra-loop base pair addition moves
  */
 template <class SS>
@@ -36,8 +36,8 @@ struct StaticLoop : Iterable<StaticLoop<SS>>, TotallyOrdered {
 
     StaticLoop() = default;
 
-    template <class T, NUPACK_IF(can_construct<SS, T const &>)>
-    StaticLoop(T const &t) : seqs(t) {}
+    template <class ...Ts, NUPACK_IF(can_construct<SS, Ts &&...>)>
+    StaticLoop(Ts &&...ts) : seqs(fw<Ts>(ts)...) {}
 
     template <class ...Ts>
     StaticLoop(Edge i, Edge p, Ts &&...ts) :  seqs(fw<Ts>(ts)...), edges(i, p) {}
@@ -81,7 +81,7 @@ NUPACK_DEFINE_TEMPLATE(is_loop, StaticLoop, class);
 /******************************************************************************************/
 
 template <class SS> template <class W>
-auto StaticLoop<SS>::strand_index(W const &w) const {return w.sys->strand_of(seqs.strand_begin());}
+auto StaticLoop<SS>::strand_index(W const &w) const {return w.sys.strand_of(seqs.strand_begin());}
 
 /******************************************************************************************/
 
@@ -130,7 +130,7 @@ bool StaticLoop<SS>::next_pair(System const &sys, usize n, iseq &i, iseq j, Pair
     for (++i; i != j; ++i) {
         if (sys.is_strand_end(i)) {
             seqs.set_last(sys.iterator_at(i)); // Split the views
-            if (front(front(seqs)) == Base('_')) {
+            if (front(front(seqs)) == Base::null()) {
                 // BEEP("root loop done", i, j);
                 return false; // single strand, done now
             }
@@ -138,11 +138,11 @@ bool StaticLoop<SS>::next_pair(System const &sys, usize n, iseq &i, iseq j, Pair
             auto s = sys.next_strand_it(j, pairs); // Switch to the new strand
             i = sys.begin_of_strand(s);
             strands.emplace_back(s);
-            seqs.append(s->begin());
+            seqs.append({s->begin(), nullptr});
             edges.append(Ether);
         } else if (pairs[i] != i) { // found a paired base
             seqs.set_last(sys.iterator_at(i + 1)); // Split the views
-            seqs.append(sys.iterator_at(pairs[i]));
+            seqs.append({sys.iterator_at(pairs[i]), nullptr});
             edges.append(n);
             // BEEP("found pair", i, j);
             return true;

@@ -1,8 +1,17 @@
 #pragma once
+#if NUPACK_DEBUG
+#   define JSON_DIAGNOSTICS 1
+#endif
+
 #include "common/Config.h"
 #include "algorithms/Traits.h"
+#include <nlohmann/json_fwd.hpp>
+
+/**************************************************************************************/
 
 namespace nupack {
+
+using json = nlohmann::json;
 
 /**************************************************************************************/
 
@@ -14,12 +23,12 @@ template <class T>
 struct ParameterSet;
 
 template <class T>
-struct ParameterData;
+struct ParameterArray;
 
 template <class T=real>
 struct Model;
 
-class System;
+struct System;
 
 struct PairList;
 
@@ -29,11 +38,6 @@ struct StateBase;
 
 class SequenceSet;
 
-struct JumpSequenceSet;
-
-template <class SS=JumpSequenceSet>
-struct JumpLoop;
-
 template <class SS=SequenceSet>
 struct StaticLoop;
 
@@ -42,15 +46,20 @@ struct StaticState;
 
 using State = StaticState<>;
 
-template <class Loop_=JumpLoop<>, class EM=Model<real>>
-struct JumpState;
-
 struct Local;
 
 /**************************************************************************************/
 
 NUPACK_NAMESPACE(kmc);
 namespace kmc {
+    struct JumpSequenceSet;
+
+    template <class SS=JumpSequenceSet>
+    struct JumpLoop;
+
+    template <class Loop_=JumpLoop<>, class EM=Model<real>>
+    struct JumpState;
+
     struct EnumeratedObserver;
     struct Stopwatch;
     struct Timer;
@@ -67,13 +76,17 @@ namespace kmc {
 /**************************************************************************************/
 
 NUPACK_NAMESPACE(design);
-NUPACK_NAMESPACE(newdesign);
+NUPACK_NAMESPACE(traits);
 NUPACK_NAMESPACE(concentration);
 NUPACK_NAMESPACE(lapack);
 NUPACK_NAMESPACE(mma);
 NUPACK_NAMESPACE(matlab);
 NUPACK_NAMESPACE(memory);
 NUPACK_NAMESPACE(simd);
+NUPACK_NAMESPACE(rates);
+NUPACK_NAMESPACE(schedule);
+NUPACK_NAMESPACE(math);
+NUPACK_NAMESPACE(tensor);
 
 /**************************************************************************************/
 
@@ -82,11 +95,14 @@ namespace thermo {
 
 NUPACK_NAMESPACE(coax);
 
-struct PF;
-struct MFE;
+template <class T> struct PF;
+template <class T> struct MFE;
 
 template <class Rig, class Model>
 class CachedModel;
+
+struct Storage;
+struct Cache;
 
 }
 

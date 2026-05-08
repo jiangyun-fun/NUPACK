@@ -1,6 +1,6 @@
 #include <nupack/design/Split.h>
 
-namespace nupack { namespace newdesign {
+namespace nupack::design {
 
 
 
@@ -11,28 +11,22 @@ namespace nupack { namespace newdesign {
  * @param in
  * @return ProbabilityMatrix
  */
-ProbabilityMatrix sparsify(Tensor<real, 2> const &in, real f_sparse) {
-    vec<arma::uword> Is;
-    vec<arma::uword> Js;
-    vec<real> vec_values;
+ProbabilityMatrix sparsify(PairMatrix<real> const &in) {
+    std::size_t const n = len(in.diagonal), n_elem = n + len(in.rows) * 2;
+    arma::umat ij(2, n_elem);
+    real_col values(n_elem);
+    izip(in.diagonal, [&](auto a, auto x) {
+        values(a) = x;
+        ij(0, a) = ij(1, a) = a;
+    });
+    izip(in.rows, in.cols, in.values, [&](auto a, auto i, auto j, auto x) {
+        auto const b = n + 2 * a;
+        values(b+1) = values(b) = x;
+        ij(0, b) = ij(1, b+1) = i;
+        ij(1, b) = ij(0, b+1) = j;
+    });
 
-    for (auto i : range(len(in))) for (auto j : range(len(in))) {
-        auto value = *in(i, j);
-        if (value >= f_sparse) {
-            Is.emplace_back(i);
-            Js.emplace_back(j);
-            vec_values.emplace_back(value);
-        }
-    }
-
-    real_col values(vec_values);
-
-    uint N = len(Is);
-    auto IJ = catted<vec<arma::uword>>(Is, Js);
-    arma::umat locations(IJ);
-    locations.reshape(N, 2);
-
-    return ProbabilityMatrix(locations.t(), values, len(in), len(in), true);
+    return ProbabilityMatrix(std::move(ij), std::move(values), len(in.diagonal), len(in.diagonal), true);
 }
 
 
@@ -89,12 +83,11 @@ bool is_padded(int i, Nicks const &bounds, int min_helix) {
  * @return all indices that could be involved in a base pair that individually
  *     meet the padding requirements
  */
-small_vec<uint> padded(small_vec<uint> bounds, uint min_helix) {
-    small_vec<uint> ret;
+vec<uint> padded(Nicks const &bounds, uint min_helix) {
+    vec<uint> ret;
     for (auto i : range(back(bounds))) if (is_padded(i, bounds, min_helix)) ret.push_back(i);
     return ret;
 }
-
 
 /**
  * @brief checks if a proposed split point meets child size and helix
@@ -439,8 +432,8 @@ std::pair<Structure, Structure> split(SplitPoint const &sp, Structure const &s) 
 
         /* create correctly sized and blanked underlying data arrays for the children */
         using data_type = decltype(left.values);
-        left.values = linspace<data_type>(i + 1 + n - j);
-        right.values = linspace<data_type>(j - i + 1);
+        left.values = linspace<data_type, std::size_t>(0, i + 1 + n - j);
+        right.values = linspace<data_type, std::size_t>(0, j - i + 1);
 
         s.for_each_pair([&](auto d, auto e) {
             /* skip pairs made incompatible by the split point */
@@ -547,4 +540,4 @@ std::pair<vec<SplitPoint>, vec<SplitPoint>> split(SplitPoint const &sp, vec<Spli
     return {std::move(left), std::move(right)};
 }
 
-}}
+}

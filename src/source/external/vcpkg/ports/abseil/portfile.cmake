@@ -1,53 +1,53 @@
-if (NOT VCPKG_TARGET_IS_WINDOWS)
+if(NOT VCPKG_TARGET_IS_WINDOWS)
     vcpkg_check_linkage(ONLY_STATIC_LIBRARY)
 endif()
 
 vcpkg_from_github(
     OUT_SOURCE_PATH SOURCE_PATH
     REPO abseil/abseil-cpp
-    REF 0f3bb466b868b523cf1dc9b2aaaed65c77b28862 #LTS 20200923, Patch 2
-    SHA512 17e766a2f7a655a3877eb3accc5745a910b69a5e2426b7ce7f6d31095523dd32d48a709c5f8380488b4cb93ce9faadedc08f0481dbdbd00cf68831541d724b4d
+    REF "${VERSION}"
+    SHA512 2a021faad807ee3e23548716ffa4785dc2409edbb4be676cc4bc01d47885760de340f0a4afdcbf0aaa835affd6d78f7bc319bbf7d337dbc30e7a559d0088e4bd
     HEAD_REF master
-    # in C++17 mode, use std::any, std::optional, std::string_view, std::variant
-    # instead of the library replacement types
-    # in C++11 mode, force use of library replacement types, otherwise the automatic
-    # detection can cause ABI issues depending on which compiler options
-    # are enabled for consuming user code
-    PATCHES fix-cxx-standard.patch
 )
 
-vcpkg_check_features(OUT_FEATURE_OPTIONS FEATURE_OPTIONS
-    cxx17 ABSL_USE_CXX17
-)
-
-vcpkg_configure_cmake(
-    SOURCE_PATH ${SOURCE_PATH}
-    PREFER_NINJA
-    DISABLE_PARALLEL_CONFIGURE
-    OPTIONS ${FEATURE_OPTIONS}
-)
-
-vcpkg_install_cmake()
-vcpkg_fixup_cmake_targets(CONFIG_PATH lib/cmake/absl TARGET_PATH share/absl)
-
-vcpkg_copy_pdbs()
-file(REMOVE_RECURSE ${CURRENT_PACKAGES_DIR}/debug/share
-                    ${CURRENT_PACKAGES_DIR}/debug/include
-                    ${CURRENT_PACKAGES_DIR}/include/absl/copts
-                    ${CURRENT_PACKAGES_DIR}/include/absl/strings/testdata
-                    ${CURRENT_PACKAGES_DIR}/include/absl/time/internal/cctz/testdata
-)
-
-if (VCPKG_LIBRARY_LINKAGE STREQUAL dynamic)
-    vcpkg_replace_string(${CURRENT_PACKAGES_DIR}/include/absl/base/config.h
-        "#elif defined(ABSL_CONSUME_DLL)" "#elif 1"
-    )
-    vcpkg_replace_string(${CURRENT_PACKAGES_DIR}/include/absl/base/internal/thread_identity.h
-        "&& !defined(ABSL_CONSUME_DLL)" "&& 0"
-    )
-    vcpkg_replace_string(${CURRENT_PACKAGES_DIR}/include/absl/container/internal/hashtablez_sampler.h
-        "!defined(ABSL_CONSUME_DLL)" "0"
-    )
+# With ABSL_PROPAGATE_CXX_STD=ON abseil automatically detect if it is being
+# compiled with C++14 or C++17, and modifies the installed `absl/base/options.h`
+# header accordingly. This works even if CMAKE_CXX_STANDARD is not set. Abseil
+# uses the compiler default behavior to update `absl/base/options.h` as needed.
+set(ABSL_USE_CXX17_OPTION "")
+if("cxx17" IN_LIST FEATURES)
+    set(ABSL_USE_CXX17_OPTION "-DCMAKE_CXX_STANDARD=17")
 endif()
 
-file(INSTALL ${SOURCE_PATH}/LICENSE DESTINATION ${CURRENT_PACKAGES_DIR}/share/${PORT} RENAME copyright)
+set(ABSL_STATIC_RUNTIME_OPTION "")
+if(VCPKG_TARGET_IS_WINDOWS AND VCPKG_CRT_LINKAGE STREQUAL "static")
+    set(ABSL_STATIC_RUNTIME_OPTION "-DABSL_MSVC_STATIC_RUNTIME=ON")
+endif()
+
+vcpkg_cmake_configure(
+    SOURCE_PATH "${SOURCE_PATH}"
+    DISABLE_PARALLEL_CONFIGURE
+    OPTIONS
+        -DABSL_PROPAGATE_CXX_STD=ON
+        ${ABSL_USE_CXX17_OPTION}
+        ${ABSL_STATIC_RUNTIME_OPTION}
+)
+
+vcpkg_cmake_install()
+vcpkg_cmake_config_fixup(PACKAGE_NAME absl CONFIG_PATH lib/cmake/absl)
+vcpkg_fixup_pkgconfig()
+
+vcpkg_copy_pdbs()
+file(REMOVE_RECURSE "${CURRENT_PACKAGES_DIR}/debug/share"
+                    "${CURRENT_PACKAGES_DIR}/debug/include"
+                    "${CURRENT_PACKAGES_DIR}/include/absl/copts"
+                    "${CURRENT_PACKAGES_DIR}/include/absl/strings/testdata"
+                    "${CURRENT_PACKAGES_DIR}/include/absl/time/internal/cctz/testdata"
+)
+
+if(VCPKG_TARGET_IS_WINDOWS AND VCPKG_LIBRARY_LINKAGE STREQUAL "dynamic")
+    vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/include/absl/base/config.h" "defined(ABSL_CONSUME_DLL)" "1")
+    vcpkg_replace_string("${CURRENT_PACKAGES_DIR}/include/absl/base/internal/thread_identity.h" "defined(ABSL_CONSUME_DLL)" "1")
+endif()
+
+vcpkg_install_copyright(FILE_LIST "${SOURCE_PATH}/LICENSE")

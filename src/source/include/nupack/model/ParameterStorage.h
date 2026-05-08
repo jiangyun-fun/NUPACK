@@ -4,59 +4,67 @@ namespace nupack {
 
 /******************************************************************************************/
 
+// Array descriptor of compile time dimensions
 template <std::size_t I, std::size_t ...Is>
-struct ParameterArray {
+struct ParameterDescriptor {
     static constexpr std::size_t begin = I;
-    static constexpr std::size_t end = begin + (1 * ... * Is);
     static constexpr std::size_t ndim = sizeof...(Is);
-    constexpr std::size_t size() const {return end - begin;}
-    constexpr std::size_t back() const {return size() - 1;}
+    constexpr std::size_t size() const noexcept {return (1 * ... * Is);}
+    constexpr std::size_t back() const noexcept {return begin + size() - 1;}
+
+    constexpr auto start(Ignore={}) const {return begin;}
+    constexpr auto stop(Ignore={}) const {return begin + size();}
 
     template <class ...Js>
-    static std::size_t index(Js ...js) {
+    std::size_t index(Ignore, Js ...js) const noexcept {
         static_assert(sizeof...(Js) == sizeof...(Is));
         std::size_t out = begin, stride = 1;
         ((out += js * stride, stride *= Is), ...); // column major
         return out;
     }
 
-    template <class T, std::size_t ...Js>
-    static std::size_t array_index(T const &t, std::index_sequence<Js...>) {return index(t[Js]...);}
-
-    template <class T>
-    static std::size_t array_index(T const &t) {return array_index(t, std::make_index_sequence<ndim>());}
+    std::size_t safe_index(Ignore, if_t<Is == 0, uint, uint>... is) const {
+        if (((is >= Is) || ...)) NUPACK_ERROR("invalid parameter index", std::make_tuple(is...), std::make_tuple(Is...));
+        return index(is...);
+    }
 };
-
-template <std::size_t I, std::size_t ...Is>
-ParameterArray<I, (Is ? 4 : 4)...> parameter_grid(std::index_sequence<Is...>); //undefined
-
-template <std::size_t I, std::size_t N>
-using ParameterGrid = decltype(parameter_grid<I>(std::make_index_sequence<N>()));
 
 /******************************************************************************************/
 
-static constexpr ParameterGrid <0, 8> interior_2_2;
-static constexpr ParameterGrid <decltype(interior_2_2)::end, 7> interior_1_2;
-static constexpr ParameterGrid <decltype(interior_1_2)::end, 6> interior_1_1;
-static constexpr ParameterGrid <decltype(interior_1_1)::end, 4> interior_mismatch;
-static constexpr ParameterGrid <decltype(interior_mismatch)::end, 4> terminal_mismatch;
-static constexpr ParameterGrid <decltype(terminal_mismatch)::end, 4> stack;
-static constexpr ParameterGrid <decltype(stack)::end, 4> coaxial_stack;
-static constexpr ParameterGrid <decltype(coaxial_stack)::end, 6> hairpin_tetra;
-static constexpr ParameterGrid <decltype(hairpin_tetra)::end, 5> hairpin_tri;
-static constexpr ParameterGrid <decltype(hairpin_tri)::end, 4> hairpin_mismatch;
-static constexpr ParameterGrid <decltype(hairpin_mismatch)::end, 3> dangle5;
-static constexpr ParameterGrid <decltype(dangle5)::end, 3> dangle3;
-static constexpr ParameterGrid <decltype(dangle3)::end, 2> terminal_penalty;
-static constexpr ParameterArray<decltype(terminal_penalty)::end, 30> interior_size;
-static constexpr ParameterArray<decltype(interior_size)::end, 30> bulge_size;
-static constexpr ParameterArray<decltype(bulge_size)::end, 30> hairpin_size;
-static constexpr ParameterArray<decltype(hairpin_size)::end, 5> ninio;
-static constexpr ParameterArray<decltype(ninio)::end> multi_base;
-static constexpr ParameterArray<decltype(multi_base)::end> multi_init;
-static constexpr ParameterArray<decltype(multi_init)::end> multi_pair;
-static constexpr ParameterArray<decltype(multi_pair)::end> log_loop_penalty;
-static constexpr ParameterArray<decltype(log_loop_penalty)::end> join_penalty;
+template <std::size_t N>
+struct ParameterGrid {
+    static constexpr std::size_t ndim = N;
+
+    std::uint32_t begin;
+
+    constexpr auto start(Ignore) const {return begin;}
+    auto stop(std::uint32_t n) const {return begin + calculate_size(n);}
+
+    template <class ...Js>
+    std::size_t index(std::uint32_t n, Js ...js) const noexcept {
+        static_assert(sizeof...(Js) == N);
+        std::uint32_t out = begin, stride = 1;
+        ((out += js * stride, stride *= n), ...); // column major
+        return out;
+    }
+
+    std::uint32_t calculate_size(std::uint32_t n) const noexcept {
+        std::uint32_t out = 1;
+        for (std::size_t i = 0; i != N; ++i) out *= n;
+        return out;
+    }
+    void set_length(std::uint32_t &b, std::uint32_t n) noexcept {begin = b; b += calculate_size(n);}
+
+    ParameterGrid const &operator()() const {return *this;}
+};
+
+/******************************************************************************************/
+
+template <class V, class I, class T, std::size_t ...Js>
+std::size_t array_index(V const &v, I const &i, T const &t, std::index_sequence<Js...>) {return v.index(i, t[Js]...);}
+
+template <class V, class I, class T>
+std::size_t array_index(V const &v, I const &i, T const &t) {return array_index(v, i, t, std::make_index_sequence<V::ndim>());}
 
 /******************************************************************************************/
 
